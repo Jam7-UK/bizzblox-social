@@ -11,6 +11,7 @@ export interface IAuthenticator {
       code: string;
       codeVerifier: string;
       refresh?: string;
+      callbackUrl?: string;
     },
     clientInformation?: ClientInformation
   ): Promise<AuthTokenDetails | string>;
@@ -21,7 +22,8 @@ export interface IAuthenticator {
     accessToken: string
   ): Promise<Omit<AuthTokenDetails, 'refreshToken' | 'expiresIn'>>;
   generateAuthUrl(
-    clientInformation?: ClientInformation
+    clientInformation?: ClientInformation,
+    callbackUrl?: string
   ): Promise<GenerateAuthUrlResponse>;
   analytics?(
     id: string,
@@ -32,7 +34,7 @@ export interface IAuthenticator {
     integrationId: string,
     accessToken: string,
     postId: string,
-    fromDate: number,
+    fromDate: number
   ): Promise<AnalyticsData[]>;
   changeNickname?(
     id: string,
@@ -55,7 +57,6 @@ export interface AnalyticsData {
   data: Array<{ total: string; date: string }>;
   percentageChange: number;
 }
-
 
 export type GenerateAuthUrlResponse = {
   url: string;

@@ -10,6 +10,7 @@ import dayjs from 'dayjs';
 import { Integration } from '@prisma/client';
 import { KickDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/kick.dto';
 import { createHash, randomBytes } from 'crypto';
+import { socialCallbackUrl } from '@gitroom/nestjs-libraries/integrations/social/social.callback-url';
 
 export class KickProvider extends SocialAbstract implements SocialProvider {
   override maxConcurrentJob = 3;
@@ -67,11 +68,15 @@ export class KickProvider extends SocialAbstract implements SocialProvider {
     };
   }
 
-  async generateAuthUrl() {
+  async generateAuthUrl(_clientInformation?: unknown, callbackUrl?: string) {
     const state = makeId(32);
     const { codeVerifier, codeChallenge } = this.generatePKCE();
 
-    const redirectUri = `${process.env.FRONTEND_URL}/integrations/social/kick`;
+    const redirectUri = socialCallbackUrl(
+      this.identifier,
+      callbackUrl,
+      `${process.env.FRONTEND_URL}/integrations/social/kick`
+    );
 
     const url =
       `https://id.kick.com/oauth/authorize` +
@@ -94,10 +99,15 @@ export class KickProvider extends SocialAbstract implements SocialProvider {
     code: string;
     codeVerifier: string;
     refresh?: string;
+    callbackUrl?: string;
   }) {
-    const redirectUri = `${process.env.FRONTEND_URL}/integrations/social/kick${
-      params.refresh ? `?refresh=${params.refresh}` : ''
-    }`;
+    const redirectUri = socialCallbackUrl(
+      this.identifier,
+      params.callbackUrl,
+      `${process.env.FRONTEND_URL}/integrations/social/kick${
+        params.refresh ? `?refresh=${params.refresh}` : ''
+      }`
+    );
 
     const tokenResponse = await this.fetch('https://id.kick.com/oauth/token', {
       method: 'POST',

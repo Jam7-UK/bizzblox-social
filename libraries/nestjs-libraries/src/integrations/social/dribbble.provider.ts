@@ -15,6 +15,7 @@ import { DribbbleDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-sett
 import mime from 'mime-types';
 import { DiscordDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/discord.dto';
 import { Tool } from '@gitroom/nestjs-libraries/integrations/tool.decorator';
+import { socialCallbackUrl } from '@gitroom/nestjs-libraries/integrations/social/social.callback-url';
 
 export class DribbbleProvider extends SocialAbstract implements SocialProvider {
   override maxConcurrentJob = 3; // Dribbble has moderate API limits
@@ -108,13 +109,17 @@ export class DribbbleProvider extends SocialAbstract implements SocialProvider {
     );
   }
 
-  async generateAuthUrl() {
+  async generateAuthUrl(_clientInformation?: unknown, callbackUrl?: string) {
     const state = makeId(6);
     return {
       url: `https://dribbble.com/oauth/authorize?client_id=${
         process.env.DRIBBBLE_CLIENT_ID
       }&redirect_uri=${encodeURIComponent(
-        `${process.env.FRONTEND_URL}/integrations/social/dribbble`
+        socialCallbackUrl(
+          this.identifier,
+          callbackUrl,
+          `${process.env.FRONTEND_URL}/integrations/social/dribbble`
+        )
       )}&response_type=code&scope=${this.scopes.join('+')}&state=${state}`,
       codeVerifier: makeId(10),
       state,
@@ -124,11 +129,22 @@ export class DribbbleProvider extends SocialAbstract implements SocialProvider {
   async authenticate(params: {
     code: string;
     codeVerifier: string;
-    refresh: string;
+    refresh?: string;
+    callbackUrl?: string;
   }) {
     const { access_token, scope } = await (
       await this.fetch(
-        `https://dribbble.com/oauth/token?client_id=${process.env.DRIBBBLE_CLIENT_ID}&client_secret=${process.env.DRIBBBLE_CLIENT_SECRET}&code=${params.code}&redirect_uri=${process.env.FRONTEND_URL}/integrations/social/dribbble`,
+        `https://dribbble.com/oauth/token?client_id=${
+          process.env.DRIBBBLE_CLIENT_ID
+        }&client_secret=${process.env.DRIBBBLE_CLIENT_SECRET}&code=${
+          params.code
+        }&redirect_uri=${encodeURIComponent(
+          socialCallbackUrl(
+            this.identifier,
+            params.callbackUrl,
+            `${process.env.FRONTEND_URL}/integrations/social/dribbble`
+          )
+        )}`,
         {
           method: 'POST',
         }

@@ -93,6 +93,21 @@ describe('BizzBLOX service authentication guard', () => {
 
   it.each([
     [
+      'connection.begin',
+      'POST',
+      '/internal/bizzblox/v1/connections:begin',
+      { provider: 'linkedin' },
+    ],
+    [
+      'connection.select',
+      'POST',
+      '/internal/bizzblox/v1/connections:select',
+      {
+        attemptHandle: 'selection-attempt-1',
+        optionRef: 'selection-option-1',
+      },
+    ],
+    [
       'publication.validate',
       'POST',
       '/internal/bizzblox/v1/publications:validate',

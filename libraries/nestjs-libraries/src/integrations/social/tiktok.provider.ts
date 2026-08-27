@@ -21,6 +21,7 @@ import { createReadStream } from 'fs';
 import { getSsrfSafeDispatcher } from '@gitroom/nestjs-libraries/dtos/webhooks/ssrf.safe.dispatcher';
 import { Integration } from '@prisma/client';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
+import { socialCallbackUrl } from '@gitroom/nestjs-libraries/integrations/social/social.callback-url';
 
 @Rules(
   [
@@ -320,7 +321,7 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     };
   }
 
-  async generateAuthUrl() {
+  async generateAuthUrl(_clientInformation?: unknown, callbackUrl?: string) {
     const state = Math.random().toString(36).substring(2);
 
     return {
@@ -328,11 +329,15 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
         'https://www.tiktok.com/v2/auth/authorize/' +
         `?client_key=${process.env.TIKTOK_CLIENT_ID}` +
         `&redirect_uri=${encodeURIComponent(
-          `${
-            process?.env?.FRONTEND_URL?.indexOf('https') === -1
-              ? 'https://redirectmeto.com/'
-              : ''
-          }${process?.env?.FRONTEND_URL}/integrations/social/tiktok`
+          socialCallbackUrl(
+            this.identifier,
+            callbackUrl,
+            `${
+              process?.env?.FRONTEND_URL?.indexOf('https') === -1
+                ? 'https://redirectmeto.com/'
+                : ''
+            }${process?.env?.FRONTEND_URL}/integrations/social/tiktok`
+          )
         )}` +
         `&state=${state}` +
         `&response_type=code` +
@@ -346,6 +351,7 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
     code: string;
     codeVerifier: string;
     refresh?: string;
+    callbackUrl?: string;
   }) {
     const value = {
       client_key: process.env.TIKTOK_CLIENT_ID!,
@@ -353,11 +359,15 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
       code: params.code,
       grant_type: 'authorization_code',
       code_verifier: params.codeVerifier,
-      redirect_uri: `${
-        process?.env?.FRONTEND_URL?.indexOf('https') === -1
-          ? 'https://redirectmeto.com/'
-          : ''
-      }${process?.env?.FRONTEND_URL}/integrations/social/tiktok`,
+      redirect_uri: socialCallbackUrl(
+        this.identifier,
+        params.callbackUrl,
+        `${
+          process?.env?.FRONTEND_URL?.indexOf('https') === -1
+            ? 'https://redirectmeto.com/'
+            : ''
+        }${process?.env?.FRONTEND_URL}/integrations/social/tiktok`
+      ),
     };
 
     const { access_token, refresh_token, scope } = await (

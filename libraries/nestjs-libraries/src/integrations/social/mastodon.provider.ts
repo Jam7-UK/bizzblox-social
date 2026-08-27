@@ -18,6 +18,7 @@ import { Integration } from '@prisma/client';
 import { number, string } from 'yup';
 import FormDataUpload from 'form-data';
 import { PassThrough, Readable } from 'stream';
+import { socialCallbackUrl } from '@gitroom/nestjs-libraries/integrations/social/social.callback-url';
 
 // Travels through the workflow history between postPending, checkPostStatus
 // and finalizePost - keep it small JSON (the instance url, media ids and the
@@ -88,20 +89,26 @@ export class MastodonProvider extends SocialAbstract implements SocialProvider {
     customUrl: string,
     state: string,
     clientId: string,
-    url: string
+    url: string,
+    callbackUrl?: string
   ) {
     return `${customUrl}/oauth/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(
-      `${url}/integrations/social/mastodon`
+      socialCallbackUrl(
+        this.identifier,
+        callbackUrl,
+        `${url}/integrations/social/mastodon`
+      )
     )}&scope=${this.scopes.join('+')}&state=${state}`;
   }
 
-  async generateAuthUrl() {
+  async generateAuthUrl(_clientInformation?: unknown, callbackUrl?: string) {
     const state = makeId(6);
     const url = this.generateUrlDynamic(
       process.env.MASTODON_URL || 'https://mastodon.social',
       state,
       process.env.MASTODON_CLIENT_ID!,
-      process.env.FRONTEND_URL!
+      process.env.FRONTEND_URL!,
+      callbackUrl
     );
     return {
       url,
@@ -114,7 +121,8 @@ export class MastodonProvider extends SocialAbstract implements SocialProvider {
     clientId: string,
     clientSecret: string,
     url: string,
-    code: string
+    code: string,
+    callbackUrl?: string
   ) {
     const form = new FormData();
     form.append('client_id', clientId);
@@ -123,7 +131,11 @@ export class MastodonProvider extends SocialAbstract implements SocialProvider {
     form.append('grant_type', 'authorization_code');
     form.append(
       'redirect_uri',
-      `${process.env.FRONTEND_URL}/integrations/social/mastodon`
+      socialCallbackUrl(
+        this.identifier,
+        callbackUrl,
+        `${process.env.FRONTEND_URL}/integrations/social/mastodon`
+      )
     );
     form.append('scope', this.scopes.join(' '));
 
@@ -157,12 +169,14 @@ export class MastodonProvider extends SocialAbstract implements SocialProvider {
     code: string;
     codeVerifier: string;
     refresh?: string;
+    callbackUrl?: string;
   }) {
     return this.dynamicAuthenticate(
       process.env.MASTODON_CLIENT_ID!,
       process.env.MASTODON_CLIENT_SECRET!,
       process.env.MASTODON_URL || 'https://mastodon.social',
-      params.code
+      params.code,
+      params.callbackUrl
     );
   }
 

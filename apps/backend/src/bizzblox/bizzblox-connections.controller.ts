@@ -18,12 +18,23 @@ import {
   BizzbloxContractInputError,
   BizzbloxContractService,
 } from './bizzblox-contract.service';
-import { BizzbloxProviderHelperDto } from './dto/connection.dto';
+import {
+  BizzbloxConnectionInputError,
+  BizzbloxConnectionsService,
+} from './bizzblox-connections.service';
+import {
+  BizzbloxBeginConnectionDto,
+  BizzbloxProviderHelperDto,
+  BizzbloxSelectConnectionDto,
+} from './dto/connection.dto';
 
 @Controller('/internal/bizzblox/v1')
 @UseGuards(BizzbloxAuthGuard)
 export class BizzbloxConnectionsController {
-  constructor(private readonly contracts: BizzbloxContractService) {}
+  constructor(
+    private readonly contracts: BizzbloxContractService,
+    private readonly connections: BizzbloxConnectionsService
+  ) {}
 
   private authority(request: BizzbloxVerifiedRequest, operation: string) {
     const authority = request.bizzbloxAuth;
@@ -41,11 +52,44 @@ export class BizzbloxConnectionsController {
     try {
       return await operation();
     } catch (error) {
-      if (error instanceof BizzbloxContractInputError) {
+      if (
+        error instanceof BizzbloxContractInputError ||
+        error instanceof BizzbloxConnectionInputError
+      ) {
         throw new BadRequestException(error.message);
       }
       throw error;
     }
+  }
+
+  @Post('/connections:begin')
+  async begin(
+    @Req() request: BizzbloxVerifiedRequest,
+    @Body() body: BizzbloxBeginConnectionDto
+  ) {
+    const authority = this.authority(request, 'connection.begin');
+    return await this.safe(async () =>
+      this.connections.begin(
+        authority.organizationId!,
+        authority.connectorRevision,
+        body
+      )
+    );
+  }
+
+  @Post('/connections:select')
+  async select(
+    @Req() request: BizzbloxVerifiedRequest,
+    @Body() body: BizzbloxSelectConnectionDto
+  ) {
+    const authority = this.authority(request, 'connection.select');
+    return await this.safe(async () =>
+      this.connections.select(
+        authority.organizationId!,
+        authority.connectorRevision,
+        body
+      )
+    );
   }
 
   @Get('/channels')

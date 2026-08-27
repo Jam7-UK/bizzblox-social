@@ -24,12 +24,18 @@ import { createReadStream, statSync } from 'fs';
 import { getSsrfSafeDispatcher } from '@gitroom/nestjs-libraries/dtos/webhooks/ssrf.safe.dispatcher';
 import { setHeartbeatDetails } from '@gitroom/nestjs-libraries/temporal/temporal.heartbeat';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
+import { socialCallbackUrl } from '@gitroom/nestjs-libraries/integrations/social/social.callback-url';
 
-const clientAndYoutube = () => {
+const clientAndYoutube = (callbackUrl?: string) => {
+  const redirectUri = socialCallbackUrl(
+    'youtube',
+    callbackUrl,
+    `${process.env.FRONTEND_URL}/integrations/social/youtube`
+  );
   const client = new google.auth.OAuth2({
     clientId: process.env.YOUTUBE_CLIENT_ID,
     clientSecret: process.env.YOUTUBE_CLIENT_SECRET,
-    redirectUri: `${process.env.FRONTEND_URL}/integrations/social/youtube`,
+    redirectUri,
   });
 
   const youtube = (newClient: OAuth2Client) =>
@@ -282,15 +288,19 @@ export class YoutubeProvider extends SocialAbstract implements SocialProvider {
     };
   }
 
-  async generateAuthUrl() {
+  async generateAuthUrl(_clientInformation?: unknown, callbackUrl?: string) {
     const state = makeId(7);
-    const { client } = clientAndYoutube();
+    const { client } = clientAndYoutube(callbackUrl);
     return {
       url: client.generateAuthUrl({
         access_type: 'offline',
         prompt: 'consent',
         state,
-        redirect_uri: `${process.env.FRONTEND_URL}/integrations/social/youtube`,
+        redirect_uri: socialCallbackUrl(
+          this.identifier,
+          callbackUrl,
+          `${process.env.FRONTEND_URL}/integrations/social/youtube`
+        ),
         scope: this.scopes.slice(0),
       }),
       codeVerifier: makeId(11),
@@ -302,8 +312,9 @@ export class YoutubeProvider extends SocialAbstract implements SocialProvider {
     code: string;
     codeVerifier: string;
     refresh?: string;
+    callbackUrl?: string;
   }) {
-    const { client, oauth2 } = clientAndYoutube();
+    const { client, oauth2 } = clientAndYoutube(params.callbackUrl);
     const { tokens } = await client.getToken(params.code);
     client.setCredentials(tokens);
     const { scopes } = await client.getTokenInfo(tokens.access_token!);

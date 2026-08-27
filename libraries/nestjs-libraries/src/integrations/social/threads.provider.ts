@@ -18,6 +18,7 @@ import { Plug } from '@gitroom/helpers/decorators/plug.decorator';
 import { Integration } from '@prisma/client';
 import { stripHtmlValidation } from '@gitroom/helpers/utils/strip.html.validation';
 import { hasExtension } from '@gitroom/helpers/utils/has.extension';
+import { socialCallbackUrl } from '@gitroom/nestjs-libraries/integrations/social/social.callback-url';
 
 export class ThreadsProvider extends SocialAbstract implements SocialProvider {
   identifier = 'threads';
@@ -60,8 +61,7 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
     if (body.includes('4279013')) {
       return {
         type: 'bad-body',
-        value:
-          'User restricted',
+        value: 'User restricted',
       };
     }
     if (body.includes('The media could not be fetched from this URI')) {
@@ -103,18 +103,22 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
     };
   }
 
-  async generateAuthUrl() {
+  async generateAuthUrl(_clientInformation?: unknown, callbackUrl?: string) {
     const state = makeId(6);
     return {
       url:
         'https://www.threads.net/oauth/authorize' +
         `?client_id=${process.env.THREADS_APP_ID}` +
         `&redirect_uri=${encodeURIComponent(
-          `${
-            process?.env.FRONTEND_URL?.indexOf('https') == -1
-              ? `https://redirectmeto.com/${process?.env.FRONTEND_URL}`
-              : `${process?.env.FRONTEND_URL}`
-          }/integrations/social/threads`
+          socialCallbackUrl(
+            this.identifier,
+            callbackUrl,
+            `${
+              process?.env.FRONTEND_URL?.indexOf('https') == -1
+                ? `https://redirectmeto.com/${process?.env.FRONTEND_URL}`
+                : `${process?.env.FRONTEND_URL}`
+            }/integrations/social/threads`
+          )
         )}` +
         `&state=${state}` +
         `&scope=${encodeURIComponent(this.scopes.join(','))}`,
@@ -127,17 +131,22 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
     code: string;
     codeVerifier: string;
     refresh?: string;
+    callbackUrl?: string;
   }) {
     const getAccessToken = await (
       await this.fetch(
         'https://graph.threads.net/oauth/access_token' +
           `?client_id=${process.env.THREADS_APP_ID}` +
           `&redirect_uri=${encodeURIComponent(
-            `${
-              process?.env.FRONTEND_URL?.indexOf('https') == -1
-                ? `https://redirectmeto.com/${process?.env.FRONTEND_URL}`
-                : `${process?.env.FRONTEND_URL}`
-            }/integrations/social/threads`
+            socialCallbackUrl(
+              this.identifier,
+              params.callbackUrl,
+              `${
+                process?.env.FRONTEND_URL?.indexOf('https') == -1
+                  ? `https://redirectmeto.com/${process?.env.FRONTEND_URL}`
+                  : `${process?.env.FRONTEND_URL}`
+              }/integrations/social/threads`
+            )
           )}` +
           `&grant_type=authorization_code` +
           `&client_secret=${process.env.THREADS_APP_SECRET}` +
@@ -570,7 +579,9 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
 
       const { id: containerId } = await (
         await this.fetch(
-          `https://graph.threads.net/v1.0/${integration.internalId}/threads?${params.toString()}`,
+          `https://graph.threads.net/v1.0/${
+            integration.internalId
+          }/threads?${params.toString()}`,
           {
             method: 'POST',
           }
@@ -595,7 +606,11 @@ export class ThreadsProvider extends SocialAbstract implements SocialProvider {
     return {
       status: 'completed',
       postId: threadId,
-      releaseURL: await this.threadPermalink(threadId, accessToken, integration),
+      releaseURL: await this.threadPermalink(
+        threadId,
+        accessToken,
+        integration
+      ),
     };
   }
 

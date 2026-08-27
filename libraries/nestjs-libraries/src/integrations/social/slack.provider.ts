@@ -10,6 +10,7 @@ import dayjs from 'dayjs';
 import { Integration } from '@prisma/client';
 import { SlackDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/slack.dto';
 import { Tool } from '@gitroom/nestjs-libraries/integrations/tool.decorator';
+import { socialCallbackUrl } from '@gitroom/nestjs-libraries/integrations/social/social.callback-url';
 
 export class SlackProvider extends SocialAbstract implements SocialProvider {
   override maxConcurrentJob = 3; // Slack has moderate API limits
@@ -42,18 +43,22 @@ export class SlackProvider extends SocialAbstract implements SocialProvider {
       username: '',
     };
   }
-  async generateAuthUrl() {
+  async generateAuthUrl(_clientInformation?: unknown, callbackUrl?: string) {
     const state = makeId(6);
 
     return {
       url: `https://slack.com/oauth/v2/authorize?client_id=${
         process.env.SLACK_ID
       }&redirect_uri=${encodeURIComponent(
-        `${
-          process?.env?.FRONTEND_URL?.indexOf('https') === -1
-            ? 'https://redirectmeto.com/'
-            : ''
-        }${process?.env?.FRONTEND_URL}/integrations/social/slack`
+        socialCallbackUrl(
+          this.identifier,
+          callbackUrl,
+          `${
+            process?.env?.FRONTEND_URL?.indexOf('https') === -1
+              ? 'https://redirectmeto.com/'
+              : ''
+          }${process?.env?.FRONTEND_URL}/integrations/social/slack`
+        )
       )}&scope=channels:read,chat:write,users:read,groups:read,channels:join,chat:write.customize&state=${state}`,
       codeVerifier: makeId(10),
       state,
@@ -64,6 +69,7 @@ export class SlackProvider extends SocialAbstract implements SocialProvider {
     code: string;
     codeVerifier: string;
     refresh?: string;
+    callbackUrl?: string;
   }) {
     const { access_token, team, bot_user_id, scope } = await (
       await this.fetch(`https://slack.com/api/oauth.v2.access`, {
@@ -75,13 +81,17 @@ export class SlackProvider extends SocialAbstract implements SocialProvider {
           client_id: process.env.SLACK_ID!,
           client_secret: process.env.SLACK_SECRET!,
           code: params.code,
-          redirect_uri: `${
-            process?.env?.FRONTEND_URL?.indexOf('https') === -1
-              ? 'https://redirectmeto.com/'
-              : ''
-          }${process?.env?.FRONTEND_URL}/integrations/social/slack${
-            params.refresh ? `?refresh=${params.refresh}` : ''
-          }`,
+          redirect_uri: socialCallbackUrl(
+            this.identifier,
+            params.callbackUrl,
+            `${
+              process?.env?.FRONTEND_URL?.indexOf('https') === -1
+                ? 'https://redirectmeto.com/'
+                : ''
+            }${process?.env?.FRONTEND_URL}/integrations/social/slack${
+              params.refresh ? `?refresh=${params.refresh}` : ''
+            }`
+          ),
         }),
       })
     ).json();

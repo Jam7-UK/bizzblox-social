@@ -9,6 +9,7 @@ import {
   PostResponse,
   SocialProvider,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
+import { socialCallbackUrl } from '@gitroom/nestjs-libraries/integrations/social/social.callback-url';
 import { lookup } from 'mime-types';
 import sharp from 'sharp';
 import { readOrFetch } from '@gitroom/helpers/utils/read.or.fetch';
@@ -184,7 +185,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
       return {
         type: 'bad-body',
         value: 'You are not allowed to create a post with duplicate content',
-      }
+      };
     }
 
     if (body.includes('usage-capped')) {
@@ -211,8 +212,7 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     if (body.includes('Your account is not permitted to access this feature')) {
       return {
         type: 'bad-body',
-        value:
-          'X blocked your request',
+        value: 'X blocked your request',
       };
     }
     if (body.includes('The Tweet contains an invalid URL.')) {
@@ -381,15 +381,19 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     };
   }
 
-  async generateAuthUrl() {
+  async generateAuthUrl(_clientInformation?: unknown, callbackUrl?: string) {
     const client = new TwitterApi({
       appKey: process.env.X_API_KEY!,
       appSecret: process.env.X_API_SECRET!,
     });
     const { url, oauth_token, oauth_token_secret } =
       await client.generateAuthLink(
-        (process.env.X_URL || process.env.FRONTEND_URL) +
-          `/integrations/social/x`,
+        socialCallbackUrl(
+          this.identifier,
+          callbackUrl,
+          (process.env.X_URL || process.env.FRONTEND_URL) +
+            `/integrations/social/x`
+        ),
         {
           authAccessType: 'write',
           linkMode: 'authenticate',
@@ -843,7 +847,11 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     const stillProcessing: string[] = [];
     for (const mediaId of pendingData.processingIds || []) {
       let processing:
-        | { state: string; check_after_secs?: number; error?: { message?: string } }
+        | {
+            state: string;
+            check_after_secs?: number;
+            error?: { message?: string };
+          }
         | undefined;
       try {
         processing = await this.mediaProcessingStatus(client, mediaId);

@@ -12,6 +12,7 @@ import FormDataNew from 'form-data';
 import mime from 'mime-types';
 import { Integration } from '@prisma/client';
 import { hasExtension } from '@gitroom/helpers/utils/has.extension';
+import { socialCallbackUrl } from '@gitroom/nestjs-libraries/integrations/social/social.callback-url';
 
 export class VkProvider extends SocialAbstract implements SocialProvider {
   override maxConcurrentJob = 2; // VK has moderate API limits
@@ -74,7 +75,7 @@ export class VkProvider extends SocialAbstract implements SocialProvider {
     };
   }
 
-  async generateAuthUrl() {
+  async generateAuthUrl(_clientInformation?: unknown, callbackUrl?: string) {
     const state = makeId(32);
     const codeVerifier = randomBytes(64).toString('base64url');
     const challenge = Buffer.from(
@@ -93,11 +94,15 @@ export class VkProvider extends SocialAbstract implements SocialProvider {
         `&code_challenge_method=S256` +
         `&code_challenge=${challenge}` +
         `&redirect_uri=${encodeURIComponent(
-          `${
-            process?.env.FRONTEND_URL?.indexOf('https') == -1
-              ? `https://redirectmeto.com/${process?.env.FRONTEND_URL}`
-              : `${process?.env.FRONTEND_URL}`
-          }/integrations/social/vk`
+          socialCallbackUrl(
+            this.identifier,
+            callbackUrl,
+            `${
+              process?.env.FRONTEND_URL?.indexOf('https') == -1
+                ? `https://redirectmeto.com/${process?.env.FRONTEND_URL}`
+                : `${process?.env.FRONTEND_URL}`
+            }/integrations/social/vk`
+          )
         )}` +
         `&state=${state}` +
         `&scope=${encodeURIComponent(this.scopes.join(' '))}`,
@@ -110,6 +115,7 @@ export class VkProvider extends SocialAbstract implements SocialProvider {
     code: string;
     codeVerifier: string;
     refresh?: string;
+    callbackUrl?: string;
   }) {
     const [code, device_id] = params.code.split('&&&&');
 
@@ -121,11 +127,15 @@ export class VkProvider extends SocialAbstract implements SocialProvider {
     formData.append('code', code);
     formData.append(
       'redirect_uri',
-      `${
-        process?.env.FRONTEND_URL?.indexOf('https') == -1
-          ? `https://redirectmeto.com/${process?.env.FRONTEND_URL}`
-          : `${process?.env.FRONTEND_URL}`
-      }/integrations/social/vk`
+      socialCallbackUrl(
+        this.identifier,
+        params.callbackUrl,
+        `${
+          process?.env.FRONTEND_URL?.indexOf('https') == -1
+            ? `https://redirectmeto.com/${process?.env.FRONTEND_URL}`
+            : `${process?.env.FRONTEND_URL}`
+        }/integrations/social/vk`
+      )
     );
 
     const { access_token, scope, refresh_token, expires_in } = await (

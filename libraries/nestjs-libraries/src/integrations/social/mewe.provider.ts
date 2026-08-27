@@ -11,6 +11,7 @@ import { Integration } from '@prisma/client';
 import { MeweDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/mewe.dto';
 import { Tool } from '@gitroom/nestjs-libraries/integrations/tool.decorator';
 import { hasExtension } from '@gitroom/helpers/utils/has.extension';
+import { socialCallbackUrl } from '@gitroom/nestjs-libraries/integrations/social/social.callback-url';
 
 export class MeweProvider extends SocialAbstract implements SocialProvider {
   identifier = 'mewe';
@@ -78,14 +79,18 @@ export class MeweProvider extends SocialAbstract implements SocialProvider {
     };
   }
 
-  async generateAuthUrl() {
+  async generateAuthUrl(_clientInformation?: unknown, callbackUrl?: string) {
     const state = makeId(6);
     return {
       url:
         `${this.meweHost}/login` +
         `?client_id=${process.env.MEWE_APP_ID}` +
         `&redirect_uri=${encodeURIComponent(
-          `${process.env.FRONTEND_URL}/integrations/social/mewe`
+          socialCallbackUrl(
+            this.identifier,
+            callbackUrl,
+            `${process.env.FRONTEND_URL}/integrations/social/mewe`
+          )
         )}` +
         `&state=${state}`,
       codeVerifier: makeId(10),
@@ -282,7 +287,10 @@ export class MeweProvider extends SocialAbstract implements SocialProvider {
 
     const postId = makeId(12);
 
-    const releaseURL = postType === 'timeline' ? `https://mewe.com/${integration.profile}/posts` : `https://mewe.com/group/${firstPost.settings.group}`;
+    const releaseURL =
+      postType === 'timeline'
+        ? `https://mewe.com/${integration.profile}/posts`
+        : `https://mewe.com/group/${firstPost.settings.group}`;
 
     return [
       {

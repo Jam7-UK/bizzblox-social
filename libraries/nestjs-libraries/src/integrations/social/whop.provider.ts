@@ -16,12 +16,20 @@ import { getSsrfSafeDispatcher } from '@gitroom/nestjs-libraries/dtos/webhooks/s
 import { WhopDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/whop.dto';
 import { Integration } from '@prisma/client';
 import { Tool } from '@gitroom/nestjs-libraries/integrations/tool.decorator';
+import { socialCallbackUrl } from '@gitroom/nestjs-libraries/integrations/social/social.callback-url';
 
 export class WhopProvider extends SocialAbstract implements SocialProvider {
   identifier = 'whop';
   name = 'Whop';
   isBetweenSteps = false;
-  scopes = ['openid', 'profile', 'email', 'forum:post:create', 'forum:read', 'company:basic:read'];
+  scopes = [
+    'openid',
+    'profile',
+    'email',
+    'forum:post:create',
+    'forum:read',
+    'company:basic:read',
+  ];
   refreshCron = false;
   editor = 'markdown' as const;
   dto = WhopDto;
@@ -37,9 +45,7 @@ export class WhopProvider extends SocialAbstract implements SocialProvider {
 
   override handleErrors(
     body: string
-  ):
-    | { type: 'refresh-token' | 'bad-body'; value: string }
-    | undefined {
+  ): { type: 'refresh-token' | 'bad-body'; value: string } | undefined {
     if (body.includes('invalid_grant')) {
       return {
         type: 'refresh-token' as const,
@@ -102,7 +108,7 @@ export class WhopProvider extends SocialAbstract implements SocialProvider {
     };
   }
 
-  async generateAuthUrl() {
+  async generateAuthUrl(_clientInformation?: unknown, callbackUrl?: string) {
     const state = makeId(6);
     const codeVerifier = randomBytes(32).toString('base64url');
     const codeChallenge = this.generateCodeChallenge(codeVerifier);
@@ -114,7 +120,11 @@ export class WhopProvider extends SocialAbstract implements SocialProvider {
         `?response_type=code` +
         `&client_id=${process.env.WHOP_CLIENT_ID}` +
         `&redirect_uri=${encodeURIComponent(
-          `${process.env.FRONTEND_URL}/integrations/social/whop`
+          socialCallbackUrl(
+            this.identifier,
+            callbackUrl,
+            `${process.env.FRONTEND_URL}/integrations/social/whop`
+          )
         )}` +
         `&scope=${encodeURIComponent(this.scopes.join(' '))}` +
         `&state=${state}` +
@@ -130,10 +140,15 @@ export class WhopProvider extends SocialAbstract implements SocialProvider {
     code: string;
     codeVerifier: string;
     refresh?: string;
+    callbackUrl?: string;
   }) {
-    const redirectUri = `${process.env.FRONTEND_URL}/integrations/social/whop${
-      params.refresh ? `?refresh=${params.refresh}` : ''
-    }`;
+    const redirectUri = socialCallbackUrl(
+      this.identifier,
+      params.callbackUrl,
+      `${process.env.FRONTEND_URL}/integrations/social/whop${
+        params.refresh ? `?refresh=${params.refresh}` : ''
+      }`
+    );
 
     const tokenResponse = await (
       await fetch('https://api.whop.com/oauth/token', {

@@ -18,7 +18,23 @@ import {
   BIZZBLOX_CHANNEL_DATABASE,
   PrismaBizzbloxChannelDirectory,
 } from './bizzblox-channel.directory';
+import {
+  BIZZBLOX_CUSTOM_FIELD_SEALER,
+  PostizBizzbloxConnectionProviderGateway,
+} from './bizzblox-connection-provider.gateway';
+import {
+  BIZZBLOX_CONNECTION_STATE_CODEC,
+  BizzbloxConnectionStateCodec,
+  RedisBizzbloxConnectionStateStore,
+} from './bizzblox-connection-state.store';
 import { BizzbloxConnectionsController } from './bizzblox-connections.controller';
+import {
+  BIZZBLOX_CONNECTION_CONFIG,
+  BIZZBLOX_CONNECTION_PROVIDERS,
+  BIZZBLOX_CONNECTION_STATES,
+  type BizzbloxConnectionConfig,
+  BizzbloxConnectionsService,
+} from './bizzblox-connections.service';
 import {
   BIZZBLOX_CHANNEL_DIRECTORY,
   BIZZBLOX_OPAQUE_REFS,
@@ -26,6 +42,7 @@ import {
   BizzbloxHmacOpaqueRefs,
 } from './bizzblox-contract.service';
 import { BizzbloxController } from './bizzblox.controller';
+import { PostizBizzbloxCustomFieldSealer } from './bizzblox-custom-field.sealer';
 import { BizzbloxPublicationsController } from './bizzblox-publications.controller';
 import {
   BIZZBLOX_CHANNEL_ACCESS,
@@ -42,6 +59,7 @@ import {
 import { BizzbloxPostizClientFactory } from './bizzblox-postiz-client.factory';
 import { BizzbloxIamContextMiddleware } from './bizzblox-iam.middleware';
 import { BizzbloxRuntimeOrganizationFactory } from './bizzblox-organization.factory';
+import { BizzbloxOAuthController } from './bizzblox-oauth.controller';
 import {
   BIZZBLOX_REDIS,
   RedisBizzbloxReplayStore,
@@ -128,10 +146,36 @@ function opaqueRefs(): BizzbloxHmacOpaqueRefs {
   );
 }
 
+function connectionConfig(): BizzbloxConnectionConfig {
+  return Object.freeze({
+    ampReturnUrl: requiredEnvironment('BIZZBLOX_AMP_RETURN_URL'),
+    clock: () => new Date(),
+    createOpaqueHandle: randomUUID,
+    publicOrigin: 'https://social.bizzblox.com',
+  });
+}
+
+function connectionStateCodec(): BizzbloxConnectionStateCodec {
+  const input = Buffer.from(requiredEnvironment('APPLICATION_SECRET'), 'utf8');
+  return new BizzbloxConnectionStateCodec({
+    encryptionKey: Buffer.from(
+      hkdfSync(
+        'sha256',
+        input,
+        Buffer.from('bizzblox-social-runtime-v1', 'utf8'),
+        'connection-state-encryption',
+        32
+      )
+    ),
+    randomBytes,
+  });
+}
+
 @Module({
   controllers: [
     BizzbloxController,
     BizzbloxConnectionsController,
+    BizzbloxOAuthController,
     BizzbloxPublicationsController,
   ],
   providers: [
@@ -139,7 +183,10 @@ function opaqueRefs(): BizzbloxHmacOpaqueRefs {
     BizzbloxIamContextMiddleware,
     BizzbloxTenantService,
     BizzbloxContractService,
+    BizzbloxConnectionsService,
     BizzbloxPublicationsService,
+    PostizBizzbloxConnectionProviderGateway,
+    PostizBizzbloxCustomFieldSealer,
     PrismaBizzbloxTenantStore,
     PrismaBizzbloxPublicationStore,
     PrismaBizzbloxChannelAccess,
@@ -147,6 +194,7 @@ function opaqueRefs(): BizzbloxHmacOpaqueRefs {
     BizzbloxPostizClientFactory,
     PrismaBizzbloxTenantAccess,
     RedisBizzbloxReplayStore,
+    RedisBizzbloxConnectionStateStore,
     BizzbloxRuntimeOrganizationFactory,
     { provide: BIZZBLOX_TENANT_DATABASE, useExisting: PrismaService },
     { provide: BIZZBLOX_CHANNEL_DATABASE, useExisting: PrismaService },
@@ -165,6 +213,23 @@ function opaqueRefs(): BizzbloxHmacOpaqueRefs {
       useExisting: PrismaBizzbloxChannelDirectory,
     },
     { provide: BIZZBLOX_OPAQUE_REFS, useFactory: opaqueRefs },
+    { provide: BIZZBLOX_CONNECTION_CONFIG, useFactory: connectionConfig },
+    {
+      provide: BIZZBLOX_CONNECTION_STATE_CODEC,
+      useFactory: connectionStateCodec,
+    },
+    {
+      provide: BIZZBLOX_CONNECTION_PROVIDERS,
+      useExisting: PostizBizzbloxConnectionProviderGateway,
+    },
+    {
+      provide: BIZZBLOX_CONNECTION_STATES,
+      useExisting: RedisBizzbloxConnectionStateStore,
+    },
+    {
+      provide: BIZZBLOX_CUSTOM_FIELD_SEALER,
+      useExisting: PostizBizzbloxCustomFieldSealer,
+    },
     {
       provide: BIZZBLOX_POSTIZ_CLIENTS,
       useExisting: BizzbloxPostizClientFactory,

@@ -15,6 +15,7 @@ import { InstagramProvider } from '@gitroom/nestjs-libraries/integrations/social
 import { META_GRAPH_API_VERSION } from '@gitroom/nestjs-libraries/integrations/social/facebook.provider';
 import { Integration } from '@prisma/client';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
+import { socialCallbackUrl } from '@gitroom/nestjs-libraries/integrations/social/social.callback-url';
 
 const instagramProvider = new InstagramProvider();
 
@@ -35,7 +36,7 @@ export class InstagramStandaloneProvider
     'instagram_business_manage_comments',
     'instagram_business_manage_insights',
   ];
-    override maxConcurrentJob = 200; // Instagram standalone has stricter limits
+  override maxConcurrentJob = 200; // Instagram standalone has stricter limits
   dto = InstagramDto;
 
   editor = 'normal' as const;
@@ -102,18 +103,22 @@ export class InstagramStandaloneProvider
     };
   }
 
-  async generateAuthUrl() {
+  async generateAuthUrl(_clientInformation?: unknown, callbackUrl?: string) {
     const state = makeId(6);
     return {
       url:
         `https://www.instagram.com/oauth/authorize?enable_fb_login=0&client_id=${
           process.env.INSTAGRAM_APP_ID
         }&redirect_uri=${encodeURIComponent(
-          `${
-            process?.env.FRONTEND_URL?.indexOf('https') == -1
-              ? `https://redirectmeto.com/${process?.env.FRONTEND_URL}`
-              : `${process?.env.FRONTEND_URL}`
-          }/integrations/social/instagram-standalone`
+          socialCallbackUrl(
+            this.identifier,
+            callbackUrl,
+            `${
+              process?.env.FRONTEND_URL?.indexOf('https') == -1
+                ? `https://redirectmeto.com/${process?.env.FRONTEND_URL}`
+                : `${process?.env.FRONTEND_URL}`
+            }/integrations/social/instagram-standalone`
+          )
         )}&response_type=code&scope=${encodeURIComponent(
           this.scopes.join(',')
         )}` + `&state=${state}`,
@@ -125,7 +130,8 @@ export class InstagramStandaloneProvider
   async authenticate(params: {
     code: string;
     codeVerifier: string;
-    refresh: string;
+    refresh?: string;
+    callbackUrl?: string;
   }) {
     const formData = new FormData();
     formData.append('client_id', process.env.INSTAGRAM_APP_ID!);
@@ -133,11 +139,15 @@ export class InstagramStandaloneProvider
     formData.append('grant_type', 'authorization_code');
     formData.append(
       'redirect_uri',
-      `${
-        process?.env.FRONTEND_URL?.indexOf('https') == -1
-          ? `https://redirectmeto.com/${process?.env.FRONTEND_URL}`
-          : `${process?.env.FRONTEND_URL}`
-      }/integrations/social/instagram-standalone`
+      socialCallbackUrl(
+        this.identifier,
+        params.callbackUrl,
+        `${
+          process?.env.FRONTEND_URL?.indexOf('https') == -1
+            ? `https://redirectmeto.com/${process?.env.FRONTEND_URL}`
+            : `${process?.env.FRONTEND_URL}`
+        }/integrations/social/instagram-standalone`
+      )
     );
     formData.append('code', params.code);
 
@@ -225,7 +235,11 @@ export class InstagramStandaloneProvider
     pendingData: any,
     integration: Integration
   ) {
-    return instagramProvider.finalizePost(accessToken, pendingData, integration);
+    return instagramProvider.finalizePost(
+      accessToken,
+      pendingData,
+      integration
+    );
   }
 
   async comment(
