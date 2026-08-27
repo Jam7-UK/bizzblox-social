@@ -842,6 +842,8 @@ importers:
         specifier: ^3.3.2
         version: 3.3.2
 
+  libraries/postiz-agent-client: {}
+
 packages:
 
   '@0no-co/graphql.web@1.2.0':
