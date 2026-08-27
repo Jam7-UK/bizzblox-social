@@ -21,7 +21,7 @@ function executionContext(request: BizzbloxVerifiedRequest): ExecutionContext {
 }
 
 describe('BizzBLOX service authentication guard', () => {
-  it('admits a request only when IAM, the signed claim, and tenant credential agree', async () => {
+  it('bootstraps a tenant only when IAM and the one-use signed claim agree', async () => {
     const verify = vi.fn<BizzbloxClaimVerifier['verify']>().mockResolvedValue({
       audience: 'bizzblox-social',
       connectorRevision: 7,
@@ -35,13 +35,7 @@ describe('BizzBLOX service authentication guard', () => {
     const consume = vi
       .fn<BizzbloxReplayStore['consume']>()
       .mockResolvedValue(true);
-    const verifyCredential = vi
-      .fn<BizzbloxTenantAccess['verifyCredential']>()
-      .mockResolvedValue({
-        connectorRevision: 7,
-        credentialVersion: 3,
-        organizationId: 'postiz-org-1',
-      });
+    const verifyCredential = vi.fn<BizzbloxTenantAccess['verifyCredential']>();
     const request: BizzbloxVerifiedRequest = {
       body: {
         externalTenantHandle: 'tenant_opaque_123',
@@ -53,7 +47,6 @@ describe('BizzBLOX service authentication guard', () => {
       },
       headers: {
         'x-bizzblox-operation-claim': 'signed-claim',
-        'x-bizzblox-tenant-credential': 'tenant-credential',
         'x-bizzblox-tenant-handle': 'tenant_opaque_123',
       },
       method: 'POST',
@@ -76,19 +69,16 @@ describe('BizzBLOX service authentication guard', () => {
       true
     );
     expect(verify).toHaveBeenCalledWith('signed-claim');
-    expect(verifyCredential).toHaveBeenCalledWith(
-      'tenant_opaque_123',
-      'tenant-credential'
-    );
+    expect(verifyCredential).not.toHaveBeenCalled();
     expect(consume).toHaveBeenCalledWith(
       'nonce_01J6DCG5GFV2X9PPYF4D8KPWYB',
       1787860890
     );
     expect(request.bizzbloxAuth).toEqual({
       connectorRevision: 7,
-      credentialVersion: 3,
+      credentialVersion: null,
       operation: 'tenant.ensure',
-      organizationId: 'postiz-org-1',
+      organizationId: null,
       tenantHandle: 'tenant_opaque_123',
     });
   });
@@ -100,8 +90,9 @@ describe('BizzBLOX service authentication guard', () => {
       expiresAt: 1787860890,
       issuedAt: 1787860800,
       nonce: 'nonce_01J6DCG5GFV2X9PPYF4D8KPWYB',
-      operation: 'tenant.ensure',
-      requestDigest,
+      operation: 'tenant.read',
+      requestDigest:
+        '2fd9c057c9976535199e42e7f21d03ab268693d76f963b016f834caf76967151',
       tenantHandleHash,
     });
     const consume = vi
@@ -115,10 +106,7 @@ describe('BizzBLOX service authentication guard', () => {
         organizationId: 'postiz-org-1',
       });
     const request: BizzbloxVerifiedRequest = {
-      body: {
-        externalTenantHandle: 'tenant_opaque_123',
-        idempotencyVersion: 1,
-      },
+      body: undefined,
       bizzbloxIam: {
         accountId: '495599735993',
         principalArn: 'arn:aws:iam::495599735993:role/BizzbloxSocialBridge',
@@ -128,8 +116,8 @@ describe('BizzBLOX service authentication guard', () => {
         'x-bizzblox-tenant-credential': 'tenant-credential',
         'x-bizzblox-tenant-handle': 'tenant_opaque_123',
       },
-      method: 'POST',
-      originalUrl: '/internal/bizzblox/v1/tenants:ensure',
+      method: 'GET',
+      originalUrl: '/internal/bizzblox/v1/tenants/tenant_opaque_123',
     };
     const guard = new BizzbloxAuthGuard(
       { verify },

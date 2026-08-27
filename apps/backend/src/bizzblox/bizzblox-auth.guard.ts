@@ -58,9 +58,9 @@ export type BizzbloxVerifiedRequest = {
   bizzbloxIam?: Readonly<{ accountId: string; principalArn: string }>;
   bizzbloxAuth?: Readonly<{
     connectorRevision: number;
-    credentialVersion: number;
+    credentialVersion: number | null;
     operation: string;
-    organizationId: string;
+    organizationId: string | null;
     tenantHandle: string;
   }>;
 };
@@ -108,7 +108,7 @@ function operationFor(method: string, path: string): string | null {
 
 function requestBinding(request: BizzbloxVerifiedRequest): Readonly<{
   claim: string;
-  credential: string;
+  credential: string | null;
   digest: string;
   operation: string;
   tenantHandle: string;
@@ -126,15 +126,19 @@ function requestBinding(request: BizzbloxVerifiedRequest): Readonly<{
   ) {
     throw new UnauthorizedException();
   }
-  const credential = request.headers['x-bizzblox-tenant-credential'];
-  if (typeof credential !== 'string' || credential.length < 16) {
-    throw new UnauthorizedException();
-  }
   const operation = operationFor(
     request.method.toUpperCase(),
     request.originalUrl
   );
   if (!operation) throw new UnauthorizedException();
+  const candidateCredential = request.headers['x-bizzblox-tenant-credential'];
+  const credential =
+    typeof candidateCredential === 'string' && candidateCredential.length >= 16
+      ? candidateCredential
+      : null;
+  if (operation !== 'tenant.ensure' && !credential) {
+    throw new UnauthorizedException();
+  }
   if (operation === 'tenant.read') {
     const encodedPathHandle = request.originalUrl.split('/').at(-1);
     if (
@@ -204,11 +208,17 @@ export class BizzbloxAuthGuard implements CanActivate {
         throw new UnauthorizedException();
       }
 
-      const tenant = await this.tenantAccess.verifyCredential(
-        binding.tenantHandle,
-        binding.credential
-      );
-      if (!tenant || tenant.connectorRevision !== claim.connectorRevision) {
+      const tenant =
+        claim.operation !== 'tenant.ensure' && binding.credential
+          ? await this.tenantAccess.verifyCredential(
+              binding.tenantHandle,
+              binding.credential
+            )
+          : null;
+      if (
+        claim.operation !== 'tenant.ensure' &&
+        (!tenant || tenant.connectorRevision !== claim.connectorRevision)
+      ) {
         throw new UnauthorizedException();
       }
       if (!(await this.replayStore.consume(claim.nonce, claim.expiresAt))) {
@@ -217,9 +227,9 @@ export class BizzbloxAuthGuard implements CanActivate {
 
       request.bizzbloxAuth = Object.freeze({
         connectorRevision: claim.connectorRevision,
-        credentialVersion: tenant.credentialVersion,
+        credentialVersion: tenant?.credentialVersion ?? null,
         operation: claim.operation,
-        organizationId: tenant.organizationId,
+        organizationId: tenant?.organizationId ?? null,
         tenantHandle: binding.tenantHandle,
       });
       return true;
