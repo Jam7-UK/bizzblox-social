@@ -1,0 +1,230 @@
+import { createHash } from 'node:crypto';
+
+import {
+  CanActivate,
+  ExecutionContext,
+  Inject,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
+
+export const BIZZBLOX_CLAIM_VERIFIER = Symbol('BIZZBLOX_CLAIM_VERIFIER');
+export const BIZZBLOX_REPLAY_STORE = Symbol('BIZZBLOX_REPLAY_STORE');
+export const BIZZBLOX_TENANT_ACCESS = Symbol('BIZZBLOX_TENANT_ACCESS');
+export const BIZZBLOX_AUTH_CONFIG = Symbol('BIZZBLOX_AUTH_CONFIG');
+
+export type BizzbloxOperationClaim = Readonly<{
+  audience: string;
+  connectorRevision: number;
+  expiresAt: number;
+  issuedAt: number;
+  nonce: string;
+  operation: string;
+  requestDigest: string;
+  tenantHandleHash: string;
+}>;
+
+export interface BizzbloxClaimVerifier {
+  verify(compactClaim: string): Promise<BizzbloxOperationClaim>;
+}
+
+export interface BizzbloxReplayStore {
+  consume(nonce: string, expiresAt: number): Promise<boolean>;
+}
+
+export interface BizzbloxTenantAccess {
+  verifyCredential(
+    tenantHandle: string,
+    credential: string
+  ): Promise<Readonly<{
+    connectorRevision: number;
+    credentialVersion: number;
+    organizationId: string;
+  }> | null>;
+}
+
+export type BizzbloxAuthConfig = Readonly<{
+  accountId: string;
+  audience: string;
+  bridgePrincipalArn: string;
+  clock: () => Date;
+}>;
+
+export type BizzbloxVerifiedRequest = {
+  method: string;
+  originalUrl: string;
+  headers: Readonly<Record<string, string | readonly string[] | undefined>>;
+  body: unknown;
+  bizzbloxIam?: Readonly<{ accountId: string; principalArn: string }>;
+  bizzbloxAuth?: Readonly<{
+    connectorRevision: number;
+    credentialVersion: number;
+    operation: string;
+    organizationId: string;
+    tenantHandle: string;
+  }>;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function canonicalJson(value: unknown): string {
+  if (
+    value === null ||
+    typeof value === 'boolean' ||
+    typeof value === 'string'
+  ) {
+    return JSON.stringify(value);
+  }
+  if (typeof value === 'number' && Number.isFinite(value))
+    return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (isRecord(value)) {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
+      .join(',')}}`;
+  }
+  throw new UnauthorizedException();
+}
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function operationFor(method: string, path: string): string | null {
+  if (method === 'POST' && path === '/internal/bizzblox/v1/tenants:ensure') {
+    return 'tenant.ensure';
+  }
+  if (
+    method === 'GET' &&
+    /^\/internal\/bizzblox\/v1\/tenants\/[^/?]+$/.test(path)
+  ) {
+    return 'tenant.read';
+  }
+  return null;
+}
+
+function requestBinding(request: BizzbloxVerifiedRequest): Readonly<{
+  claim: string;
+  credential: string;
+  digest: string;
+  operation: string;
+  tenantHandle: string;
+}> {
+  const operationClaim = request.headers['x-bizzblox-operation-claim'];
+  if (typeof operationClaim !== 'string') throw new UnauthorizedException();
+  const tenantHandle = request.headers['x-bizzblox-tenant-handle'];
+  if (typeof tenantHandle !== 'string' || tenantHandle.length < 16) {
+    throw new UnauthorizedException();
+  }
+  if (
+    isRecord(request.body) &&
+    request.body.externalTenantHandle !== undefined &&
+    request.body.externalTenantHandle !== tenantHandle
+  ) {
+    throw new UnauthorizedException();
+  }
+  const credential = request.headers['x-bizzblox-tenant-credential'];
+  if (typeof credential !== 'string' || credential.length < 16) {
+    throw new UnauthorizedException();
+  }
+  const operation = operationFor(
+    request.method.toUpperCase(),
+    request.originalUrl
+  );
+  if (!operation) throw new UnauthorizedException();
+  if (operation === 'tenant.read') {
+    const encodedPathHandle = request.originalUrl.split('/').at(-1);
+    if (
+      !encodedPathHandle ||
+      decodeURIComponent(encodedPathHandle) !== tenantHandle
+    ) {
+      throw new UnauthorizedException();
+    }
+  }
+  return Object.freeze({
+    claim: operationClaim,
+    credential,
+    digest: sha256(
+      canonicalJson({
+        body: request.body ?? null,
+        method: request.method.toUpperCase(),
+        path: request.originalUrl,
+      })
+    ),
+    operation,
+    tenantHandle,
+  });
+}
+
+@Injectable()
+export class BizzbloxAuthGuard implements CanActivate {
+  constructor(
+    @Inject(BIZZBLOX_CLAIM_VERIFIER)
+    private readonly claimVerifier: BizzbloxClaimVerifier,
+    @Inject(BIZZBLOX_REPLAY_STORE)
+    private readonly replayStore: BizzbloxReplayStore,
+    @Inject(BIZZBLOX_TENANT_ACCESS)
+    private readonly tenantAccess: BizzbloxTenantAccess,
+    @Inject(BIZZBLOX_AUTH_CONFIG)
+    private readonly config: BizzbloxAuthConfig
+  ) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    try {
+      const request = context
+        .switchToHttp()
+        .getRequest<BizzbloxVerifiedRequest>();
+      const iam = request.bizzbloxIam;
+      if (
+        iam?.accountId !== this.config.accountId ||
+        iam.principalArn !== this.config.bridgePrincipalArn
+      ) {
+        throw new UnauthorizedException();
+      }
+
+      const binding = requestBinding(request);
+      const claim = await this.claimVerifier.verify(binding.claim);
+      const now = Math.floor(this.config.clock().getTime() / 1000);
+      if (
+        claim.audience !== this.config.audience ||
+        claim.expiresAt <= now ||
+        claim.expiresAt > claim.issuedAt + 120 ||
+        claim.issuedAt < now - 120 ||
+        claim.issuedAt > now + 30 ||
+        claim.operation !== binding.operation ||
+        claim.requestDigest !== binding.digest ||
+        claim.tenantHandleHash !== sha256(binding.tenantHandle) ||
+        !Number.isInteger(claim.connectorRevision) ||
+        claim.connectorRevision <= 0 ||
+        !claim.nonce
+      ) {
+        throw new UnauthorizedException();
+      }
+
+      const tenant = await this.tenantAccess.verifyCredential(
+        binding.tenantHandle,
+        binding.credential
+      );
+      if (!tenant || tenant.connectorRevision !== claim.connectorRevision) {
+        throw new UnauthorizedException();
+      }
+      if (!(await this.replayStore.consume(claim.nonce, claim.expiresAt))) {
+        throw new UnauthorizedException();
+      }
+
+      request.bizzbloxAuth = Object.freeze({
+        connectorRevision: claim.connectorRevision,
+        credentialVersion: tenant.credentialVersion,
+        operation: claim.operation,
+        organizationId: tenant.organizationId,
+        tenantHandle: binding.tenantHandle,
+      });
+      return true;
+    } catch {
+      throw new UnauthorizedException();
+    }
+  }
+}

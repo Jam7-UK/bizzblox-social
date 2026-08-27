@@ -1,0 +1,146 @@
+import { hkdfSync, randomBytes } from 'node:crypto';
+
+import { MiddlewareConsumer, Module, type NestModule } from '@nestjs/common';
+
+import { PrismaService } from '@gitroom/nestjs-libraries/database/prisma/prisma.service';
+import { ioRedis } from '@gitroom/nestjs-libraries/redis/redis.service';
+
+import {
+  BIZZBLOX_AUTH_CONFIG,
+  BIZZBLOX_CLAIM_VERIFIER,
+  BIZZBLOX_REPLAY_STORE,
+  BIZZBLOX_TENANT_ACCESS,
+  BizzbloxAuthGuard,
+  type BizzbloxAuthConfig,
+} from './bizzblox-auth.guard';
+import { BizzbloxJwtClaimVerifier } from './bizzblox-claim';
+import { BizzbloxController } from './bizzblox.controller';
+import { BizzbloxIamContextMiddleware } from './bizzblox-iam.middleware';
+import { BizzbloxRuntimeOrganizationFactory } from './bizzblox-organization.factory';
+import {
+  BIZZBLOX_REDIS,
+  RedisBizzbloxReplayStore,
+} from './bizzblox-replay.store';
+import { PrismaBizzbloxTenantAccess } from './bizzblox-tenant-access';
+import { BizzbloxTenantCredentialCodec } from './bizzblox-tenant-credentials';
+import {
+  BIZZBLOX_ORGANIZATION_FACTORY,
+  BIZZBLOX_TENANT_CREDENTIALS,
+  BIZZBLOX_TENANT_STORE,
+  BizzbloxTenantService,
+} from './bizzblox-tenant.service';
+import {
+  BIZZBLOX_TENANT_DATABASE,
+  PrismaBizzbloxTenantStore,
+} from './bizzblox-tenant.store';
+
+function requiredEnvironment(name: string): string {
+  const value = process.env[name]?.trim();
+  if (!value)
+    throw new Error(`Missing BizzBLOX service configuration: ${name}`);
+  return value;
+}
+
+function authConfig(): BizzbloxAuthConfig & {
+  issuer: string;
+  publicKey: string;
+} {
+  if (process.env.BIZZBLOX_SERVICE_MODE !== '1') {
+    throw new Error(
+      'BizzBLOX service module is unavailable outside service mode'
+    );
+  }
+  const accountId = requiredEnvironment('BIZZBLOX_BRIDGE_ACCOUNT_ID');
+  const bridgePrincipalArn = requiredEnvironment(
+    'BIZZBLOX_BRIDGE_PRINCIPAL_ARN'
+  );
+  if (
+    !/^[0-9]{12}$/.test(accountId) ||
+    bridgePrincipalArn !== `arn:aws:iam::${accountId}:role/BizzbloxSocialBridge`
+  ) {
+    throw new Error('Invalid BizzBLOX bridge identity configuration');
+  }
+  return Object.freeze({
+    accountId,
+    audience: 'bizzblox-social',
+    bridgePrincipalArn,
+    clock: () => new Date(),
+    issuer: requiredEnvironment('BIZZBLOX_OPERATION_CLAIM_ISSUER'),
+    publicKey: requiredEnvironment('BIZZBLOX_OPERATION_CLAIM_PUBLIC_KEY_PEM')
+      .split('\\n')
+      .join('\n'),
+  });
+}
+
+function credentialCodec(): BizzbloxTenantCredentialCodec {
+  const root = requiredEnvironment('APPLICATION_SECRET');
+  if (root.length < 32) throw new Error('Invalid BizzBLOX application secret');
+  const input = Buffer.from(root, 'utf8');
+  const salt = Buffer.from('bizzblox-social-runtime-v1', 'utf8');
+  return new BizzbloxTenantCredentialCodec({
+    encryptionKey: Buffer.from(
+      hkdfSync('sha256', input, salt, 'tenant-recovery-encryption', 32)
+    ),
+    hashKey: Buffer.from(
+      hkdfSync('sha256', input, salt, 'tenant-credential-hash', 32)
+    ),
+    randomBytes,
+  });
+}
+
+@Module({
+  controllers: [BizzbloxController],
+  providers: [
+    BizzbloxAuthGuard,
+    BizzbloxIamContextMiddleware,
+    BizzbloxTenantService,
+    PrismaBizzbloxTenantStore,
+    PrismaBizzbloxTenantAccess,
+    RedisBizzbloxReplayStore,
+    BizzbloxRuntimeOrganizationFactory,
+    { provide: BIZZBLOX_TENANT_DATABASE, useExisting: PrismaService },
+    { provide: BIZZBLOX_TENANT_STORE, useExisting: PrismaBizzbloxTenantStore },
+    {
+      provide: BIZZBLOX_TENANT_CREDENTIALS,
+      useFactory: credentialCodec,
+    },
+    {
+      provide: BIZZBLOX_ORGANIZATION_FACTORY,
+      useExisting: BizzbloxRuntimeOrganizationFactory,
+    },
+    { provide: BIZZBLOX_REDIS, useValue: ioRedis },
+    { provide: BIZZBLOX_REPLAY_STORE, useExisting: RedisBizzbloxReplayStore },
+    {
+      provide: BIZZBLOX_TENANT_ACCESS,
+      useExisting: PrismaBizzbloxTenantAccess,
+    },
+    {
+      provide: BIZZBLOX_AUTH_CONFIG,
+      useFactory: () => {
+        const {
+          issuer: _issuer,
+          publicKey: _publicKey,
+          ...config
+        } = authConfig();
+        return config;
+      },
+    },
+    {
+      provide: BIZZBLOX_CLAIM_VERIFIER,
+      useFactory: () => {
+        const config = authConfig();
+        return new BizzbloxJwtClaimVerifier({
+          audience: config.audience,
+          clock: config.clock,
+          issuer: config.issuer,
+          publicKey: config.publicKey,
+        });
+      },
+    },
+  ],
+})
+export class BizzbloxModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(BizzbloxIamContextMiddleware).forRoutes(BizzbloxController);
+  }
+}
