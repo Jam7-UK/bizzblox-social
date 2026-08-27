@@ -103,6 +103,29 @@ function operationFor(method: string, path: string): string | null {
   ) {
     return 'tenant.read';
   }
+  if (
+    method === 'POST' &&
+    path === '/internal/bizzblox/v1/publications:validate'
+  ) {
+    return 'publication.validate';
+  }
+  if (method === 'POST' && path === '/internal/bizzblox/v1/publications') {
+    return 'publication.schedule';
+  }
+  if (
+    method === 'GET' &&
+    /^\/internal\/bizzblox\/v1\/publications\/by-external\/[^/?]+\/analytics$/.test(
+      path
+    )
+  ) {
+    return 'publication.analytics.read';
+  }
+  if (
+    method === 'GET' &&
+    /^\/internal\/bizzblox\/v1\/publications\/by-external\/[^/?]+$/.test(path)
+  ) {
+    return 'publication.read';
+  }
   return null;
 }
 

@@ -29,7 +29,11 @@ function assertKey(value: Buffer): void {
 function decode(value: string): Buffer {
   if (!/^[A-Za-z0-9_-]+$/.test(value))
     throw new Error('invalid recovery envelope');
-  return Buffer.from(value, 'base64url');
+  const decoded = Buffer.from(value, 'base64url');
+  if (decoded.toString('base64url') !== value) {
+    throw new Error('invalid recovery envelope');
+  }
+  return decoded;
 }
 
 export class BizzbloxTenantCredentialCodec
