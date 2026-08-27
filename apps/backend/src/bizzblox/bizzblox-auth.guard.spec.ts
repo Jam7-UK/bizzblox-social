@@ -111,6 +111,19 @@ describe('BizzBLOX service authentication guard', () => {
       '/internal/bizzblox/v1/publications/by-external/post_123/analytics',
       undefined,
     ],
+    ['channel.list', 'GET', '/internal/bizzblox/v1/channels', undefined],
+    [
+      'channel.contract.read',
+      'GET',
+      '/internal/bizzblox/v1/channels/bbx_ch_123/contract',
+      undefined,
+    ],
+    [
+      'channel.helper.execute',
+      'POST',
+      '/internal/bizzblox/v1/channels/bbx_ch_123/tools/bbx_help_123',
+      { data: { query: 'jam' } },
+    ],
   ])(
     'binds %s to only its exact service route',
     async (operation, method, path, body) => {

@@ -126,6 +126,21 @@ function operationFor(method: string, path: string): string | null {
   ) {
     return 'publication.read';
   }
+  if (method === 'GET' && path === '/internal/bizzblox/v1/channels') {
+    return 'channel.list';
+  }
+  if (
+    method === 'GET' &&
+    /^\/internal\/bizzblox\/v1\/channels\/[^/?]+\/contract$/.test(path)
+  ) {
+    return 'channel.contract.read';
+  }
+  if (
+    method === 'POST' &&
+    /^\/internal\/bizzblox\/v1\/channels\/[^/?]+\/tools\/[^/?]+$/.test(path)
+  ) {
+    return 'channel.helper.execute';
+  }
   return null;
 }
 

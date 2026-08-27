@@ -14,6 +14,17 @@ import {
   type BizzbloxAuthConfig,
 } from './bizzblox-auth.guard';
 import { BizzbloxJwtClaimVerifier } from './bizzblox-claim';
+import {
+  BIZZBLOX_CHANNEL_DATABASE,
+  PrismaBizzbloxChannelDirectory,
+} from './bizzblox-channel.directory';
+import { BizzbloxConnectionsController } from './bizzblox-connections.controller';
+import {
+  BIZZBLOX_CHANNEL_DIRECTORY,
+  BIZZBLOX_OPAQUE_REFS,
+  BizzbloxContractService,
+  BizzbloxHmacOpaqueRefs,
+} from './bizzblox-contract.service';
 import { BizzbloxController } from './bizzblox.controller';
 import { BizzbloxPublicationsController } from './bizzblox-publications.controller';
 import {
@@ -102,21 +113,43 @@ function credentialCodec(): BizzbloxTenantCredentialCodec {
   });
 }
 
+function opaqueRefs(): BizzbloxHmacOpaqueRefs {
+  const input = Buffer.from(requiredEnvironment('APPLICATION_SECRET'), 'utf8');
+  return new BizzbloxHmacOpaqueRefs(
+    Buffer.from(
+      hkdfSync(
+        'sha256',
+        input,
+        Buffer.from('bizzblox-social-runtime-v1', 'utf8'),
+        'channel-and-helper-opaque-references',
+        32
+      )
+    )
+  );
+}
+
 @Module({
-  controllers: [BizzbloxController, BizzbloxPublicationsController],
+  controllers: [
+    BizzbloxController,
+    BizzbloxConnectionsController,
+    BizzbloxPublicationsController,
+  ],
   providers: [
     BizzbloxAuthGuard,
     BizzbloxIamContextMiddleware,
     BizzbloxTenantService,
+    BizzbloxContractService,
     BizzbloxPublicationsService,
     PrismaBizzbloxTenantStore,
     PrismaBizzbloxPublicationStore,
     PrismaBizzbloxChannelAccess,
+    PrismaBizzbloxChannelDirectory,
     BizzbloxPostizClientFactory,
     PrismaBizzbloxTenantAccess,
     RedisBizzbloxReplayStore,
     BizzbloxRuntimeOrganizationFactory,
     { provide: BIZZBLOX_TENANT_DATABASE, useExisting: PrismaService },
+    { provide: BIZZBLOX_CHANNEL_DATABASE, useExisting: PrismaService },
     { provide: BIZZBLOX_PUBLICATION_DATABASE, useExisting: PrismaService },
     { provide: BIZZBLOX_TENANT_STORE, useExisting: PrismaBizzbloxTenantStore },
     {
@@ -127,6 +160,11 @@ function credentialCodec(): BizzbloxTenantCredentialCodec {
       provide: BIZZBLOX_CHANNEL_ACCESS,
       useExisting: PrismaBizzbloxChannelAccess,
     },
+    {
+      provide: BIZZBLOX_CHANNEL_DIRECTORY,
+      useExisting: PrismaBizzbloxChannelDirectory,
+    },
+    { provide: BIZZBLOX_OPAQUE_REFS, useFactory: opaqueRefs },
     {
       provide: BIZZBLOX_POSTIZ_CLIENTS,
       useExisting: BizzbloxPostizClientFactory,
@@ -175,6 +213,10 @@ export class BizzbloxModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     consumer
       .apply(BizzbloxIamContextMiddleware)
-      .forRoutes(BizzbloxController, BizzbloxPublicationsController);
+      .forRoutes(
+        BizzbloxController,
+        BizzbloxConnectionsController,
+        BizzbloxPublicationsController
+      );
   }
 }

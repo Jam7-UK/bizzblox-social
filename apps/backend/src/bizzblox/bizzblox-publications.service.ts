@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import { Inject, Injectable } from '@nestjs/common';
 
 import type {
@@ -8,6 +6,11 @@ import type {
   PostizAgentClient,
   PostValidationResult,
 } from '@bizzblox/postiz-agent-client';
+
+import {
+  bizzbloxCanonicalJson as canonicalJson,
+  bizzbloxDigest as digest,
+} from './bizzblox-canonical';
 
 export const BIZZBLOX_PUBLICATION_STORE = Symbol('BIZZBLOX_PUBLICATION_STORE');
 export const BIZZBLOX_CHANNEL_ACCESS = Symbol('BIZZBLOX_CHANNEL_ACCESS');
@@ -159,33 +162,6 @@ class BizzbloxPublicationInputError extends Error {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function canonicalJson(value: unknown): string {
-  if (
-    value === null ||
-    typeof value === 'boolean' ||
-    typeof value === 'string'
-  ) {
-    return JSON.stringify(value);
-  }
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (isRecord(value)) {
-    return `{${Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`)
-      .join(',')}}`;
-  }
-  throw new Error('Publication payload is not canonical JSON.');
-}
-
-function digest(value: unknown): string {
-  return `sha256:${createHash('sha256')
-    .update(canonicalJson(value), 'utf8')
-    .digest('hex')}`;
 }
 
 function bounded(value: unknown, fallback: string): string {
