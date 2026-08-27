@@ -72,6 +72,19 @@ export class BizzbloxPublicationsController {
     );
   }
 
+  @Post('/publications/by-external/:externalPublicationId/cancel')
+  async cancel(
+    @Req() request: BizzbloxVerifiedRequest,
+    @Param('externalPublicationId') externalPublicationId: string
+  ) {
+    const authority = this.authority(request, 'publication.cancel');
+    return await this.publications.cancel(
+      authority.organizationId,
+      authority.connectorRevision,
+      externalPublicationId
+    );
+  }
+
   @Get('/publications/by-external/:externalPublicationId/analytics')
   async analytics(
     @Req() request: BizzbloxVerifiedRequest,

@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { PostizAgentClient } from '@bizzblox/postiz-agent-client';
+import {
+  PostizAgentError,
+  type PostizAgentClient,
+} from '@bizzblox/postiz-agent-client';
 
 import {
   BizzbloxPublicationsService,
@@ -327,6 +330,69 @@ describe('BizzBLOX publication service', () => {
     });
     expect(setup.agent.readPost).toHaveBeenCalledWith({ id: 'post-stable-1' });
     expect(setup.agent.listPosts).not.toHaveBeenCalled();
+  });
+
+  it('cancels an unpublished group only after exact absence readback', async () => {
+    const agent = client({
+      deletePost: vi.fn().mockResolvedValue({ deleted: true }),
+      readPost: vi
+        .fn()
+        .mockRejectedValue(
+          new PostizAgentError('provider_rejected', 404, 'Not found')
+        ),
+    });
+    const setup = service({ agent });
+    await setup.service.schedule(ORGANIZATION_ID, 7, request);
+
+    await expect(
+      setup.service.cancel(ORGANIZATION_ID, 7, EXTERNAL_PUBLICATION_ID)
+    ).resolves.toEqual({ outcome: 'cancelled' });
+    await expect(
+      setup.service.cancel(ORGANIZATION_ID, 7, EXTERNAL_PUBLICATION_ID)
+    ).resolves.toEqual({ outcome: 'cancelled' });
+    expect(agent.deletePost).toHaveBeenCalledOnce();
+    expect(agent.deletePost).toHaveBeenCalledWith({ id: 'post-stable-1' });
+    expect(agent.readPost).toHaveBeenCalledWith({ id: 'post-stable-1' });
+  });
+
+  it('refuses to cancel a published post without calling the provider', async () => {
+    const setup = service();
+    await setup.service.schedule(ORGANIZATION_ID, 7, request);
+    const identity = `${ORGANIZATION_ID}:${EXTERNAL_PUBLICATION_ID}`;
+    const scheduled = setup.memory!.rows.get(identity)!;
+    setup.memory!.rows.set(identity, { ...scheduled, state: 'published' });
+
+    await expect(
+      setup.service.cancel(ORGANIZATION_ID, 7, EXTERNAL_PUBLICATION_ID)
+    ).resolves.toEqual({
+      outcome: 'rejected',
+      code: 'already_published',
+      message: 'Published social content cannot be cancelled.',
+    });
+    expect(setup.agent.deletePost).not.toHaveBeenCalled();
+  });
+
+  it('reports reconciliation when provider cancellation cannot be proven', async () => {
+    const agent = client({
+      deletePost: vi.fn().mockResolvedValue({ deleted: true }),
+      readPost: vi.fn().mockResolvedValue({
+        group: 'group-stable-1',
+        posts: [{ id: 'post-stable-1', state: 'QUEUE' }],
+      }),
+    });
+    const setup = service({ agent });
+    await setup.service.schedule(ORGANIZATION_ID, 7, request);
+
+    await expect(
+      setup.service.cancel(ORGANIZATION_ID, 7, EXTERNAL_PUBLICATION_ID)
+    ).resolves.toEqual({ outcome: 'reconcile_required' });
+    expect(
+      setup.memory!.rows.get(`${ORGANIZATION_ID}:${EXTERNAL_PUBLICATION_ID}`)
+    ).toMatchObject({
+      state: 'reconcile_required',
+      providerErrorCode: 'cancellation_unconfirmed',
+      providerErrorMessage: null,
+    });
   });
 
   it('projects supported analytics and treats provider absence as unavailable', async () => {

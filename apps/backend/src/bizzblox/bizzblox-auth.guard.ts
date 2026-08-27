@@ -126,6 +126,14 @@ function operationFor(method: string, path: string): string | null {
   ) {
     return 'publication.read';
   }
+  if (
+    method === 'POST' &&
+    /^\/internal\/bizzblox\/v1\/publications\/by-external\/[^/?]+\/cancel$/.test(
+      path
+    )
+  ) {
+    return 'publication.cancel';
+  }
   if (method === 'GET' && path === '/internal/bizzblox/v1/channels') {
     return 'channel.list';
   }

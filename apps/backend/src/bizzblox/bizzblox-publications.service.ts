@@ -1,10 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 
-import type {
-  CreatePostInput,
-  JsonValue,
-  PostizAgentClient,
-  PostValidationResult,
+import {
+  PostizAgentError,
+  type CreatePostInput,
+  type JsonValue,
+  type PostizAgentClient,
+  type PostValidationResult,
 } from '@bizzblox/postiz-agent-client';
 
 import {
@@ -659,6 +660,93 @@ export class BizzbloxPublicationsService {
           : {}),
       });
     }
+  }
+
+  async cancel(
+    organizationId: string,
+    connectorRevision: number,
+    externalPublicationId: string
+  ) {
+    const record = await this.publications.read(
+      organizationId,
+      externalPublicationId
+    );
+    if (!record || record.connectorRevision !== connectorRevision) {
+      return Object.freeze({
+        outcome: 'rejected' as const,
+        code: 'publication_not_found',
+        message: 'Social publication was not found.',
+      });
+    }
+    if (record.state === 'cancelled') {
+      return Object.freeze({ outcome: 'cancelled' as const });
+    }
+    if (record.state === 'published') {
+      return Object.freeze({
+        outcome: 'rejected' as const,
+        code: 'already_published',
+        message: 'Published social content cannot be cancelled.',
+      });
+    }
+    const postId = record.remotePostIds[0];
+    if (!postId) {
+      return Object.freeze({ outcome: 'reconcile_required' as const });
+    }
+    const client = await this.clients.forOrganization(organizationId);
+    try {
+      await client.deletePost({ id: postId });
+    } catch {
+      // An unknown delete result is resolved by the exact read below. A retry
+      // may also observe a provider 404 after the first delete succeeded.
+    }
+    try {
+      const post = await client.readPost({ id: postId });
+      if (postState(rootPost(post)) === 'published') {
+        await this.publications.transition({
+          organizationId,
+          externalPublicationId,
+          payloadDigest: record.payloadDigest,
+          patch: {
+            state: 'published',
+            providerErrorCode: null,
+            providerErrorMessage: null,
+            safeResponseDigest: digest(post),
+          },
+        });
+        return Object.freeze({
+          outcome: 'rejected' as const,
+          code: 'already_published',
+          message: 'Published social content cannot be cancelled.',
+        });
+      }
+    } catch (error) {
+      if (error instanceof PostizAgentError && error.status === 404) {
+        const cancelled = await this.publications.transition({
+          organizationId,
+          externalPublicationId,
+          payloadDigest: record.payloadDigest,
+          patch: {
+            state: 'cancelled',
+            providerErrorCode: null,
+            providerErrorMessage: null,
+          },
+        });
+        return cancelled?.state === 'cancelled'
+          ? Object.freeze({ outcome: 'cancelled' as const })
+          : Object.freeze({ outcome: 'reconcile_required' as const });
+      }
+    }
+    await this.publications.transition({
+      organizationId,
+      externalPublicationId,
+      payloadDigest: record.payloadDigest,
+      patch: {
+        state: 'reconcile_required',
+        providerErrorCode: 'cancellation_unconfirmed',
+        providerErrorMessage: null,
+      },
+    });
+    return Object.freeze({ outcome: 'reconcile_required' as const });
   }
 
   async analytics(

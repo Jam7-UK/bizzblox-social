@@ -111,6 +111,12 @@ describe('BizzBLOX service authentication guard', () => {
       '/internal/bizzblox/v1/publications/by-external/post_123/analytics',
       undefined,
     ],
+    [
+      'publication.cancel',
+      'POST',
+      '/internal/bizzblox/v1/publications/by-external/post_123/cancel',
+      {},
+    ],
     ['channel.list', 'GET', '/internal/bizzblox/v1/channels', undefined],
     [
       'channel.contract.read',
