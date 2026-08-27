@@ -313,23 +313,10 @@
     "vitest": "3.1.4"
   },
   "volta": {
-    "node": "20.17.0"
+    "node": "22.22.1"
   },
   "jest-junit": {
     "outputDirectory": "./reports",
     "outputName": "junit.xml"
-  },
-  "pnpm": {
-    "overrides": {
-      "multer": "^2.2.0",
-      "next": "16.3.1",
-      "react": "19.2.4",
-      "react-dom": "19.2.4",
-      "@types/react": "19.1.8",
-      "@types/react-dom": "19.1.6"
-    },
-    "onlyBuiltDependencies": [
-      "bcrypt"
-    ]
   }
 }
