@@ -9,6 +9,7 @@ const candidate = {
   connectorRevision: 7,
   credentialHash: `hmac-sha256:${'a'.repeat(64)}`,
   externalTenantHandle: 'tenant_opaque_123',
+  organizationApiKey: 'bbx_internal_api_key_1234567890123456',
   organizationId: 'postiz-org-1',
   organizationProvenance: 'orgprov_01J6DCZP6S4XFX58GRY7H6QYJD',
   payloadDigest: 'b'.repeat(64),
@@ -49,8 +50,18 @@ describe('Prisma BizzBLOX tenant store', () => {
     });
     expect(organizationCreate).toHaveBeenCalledWith({
       data: {
+        apiKey: 'bbx_internal_api_key_1234567890123456',
         id: 'postiz-org-1',
         name: 'Managed social tenant orgprov_01J6DCZP6S4XFX58GRY7H6QYJD',
+        subscription: {
+          create: {
+            identifier: 'bizzblox-managed-service',
+            isLifetime: true,
+            period: 'YEARLY',
+            subscriptionTier: 'ULTIMATE',
+            totalChannels: 10_000,
+          },
+        },
       },
       select: { id: true },
     });

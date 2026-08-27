@@ -231,7 +231,7 @@ describe('Postiz Agent client', () => {
       .fn()
       .mockResolvedValueOnce({
         status: 201,
-        body: { id: 'post-1', group: 'group-1', state: 'QUEUE' },
+        body: [{ postId: 'post-1', integration: 'integration-linkedin-1' }],
       })
       .mockResolvedValueOnce({
         status: 200,
@@ -248,7 +248,7 @@ describe('Postiz Agent client', () => {
       .mockResolvedValueOnce({ status: 200, body: { deleted: true } })
       .mockResolvedValueOnce({
         status: 200,
-        body: { metrics: [{ name: 'impressions', value: 42 }] },
+        body: [{ name: 'impressions', value: 42 }],
       });
     const credential = {
       apiKey: 'tenant-secret',
@@ -284,11 +284,9 @@ describe('Postiz Agent client', () => {
       ],
     };
 
-    await expect(client.createPost(createInput)).resolves.toEqual({
-      id: 'post-1',
-      group: 'group-1',
-      state: 'QUEUE',
-    });
+    await expect(client.createPost(createInput)).resolves.toEqual([
+      { postId: 'post-1', integration: 'integration-linkedin-1' },
+    ]);
     await expect(client.listPosts({})).resolves.toEqual([
       { id: 'post-1', group: 'group-1', state: 'QUEUE' },
     ]);
@@ -309,9 +307,7 @@ describe('Postiz Agent client', () => {
     });
     await expect(
       client.getPostAnalytics({ postId: 'post-1', days: 7 })
-    ).resolves.toEqual({
-      metrics: [{ name: 'impressions', value: 42 }],
-    });
+    ).resolves.toEqual([{ name: 'impressions', value: 42 }]);
 
     expect(request.mock.calls).toEqual([
       [
@@ -352,6 +348,63 @@ describe('Postiz Agent client', () => {
         },
       ],
     ]);
+  });
+
+  it('uses the side-effect-free public validation path before publication', async () => {
+    const request = vi.fn().mockResolvedValue({
+      status: 200,
+      body: [
+        {
+          identifier: 'linkedin',
+          name: 'LinkedIn',
+          emptyContent: false,
+          valid: true,
+          errors: true,
+          tooLong: false,
+        },
+      ],
+    });
+    const client = createPostizAgentClient({
+      transport: { request },
+      credential: async () => ({
+        apiKey: 'tenant-secret',
+        apiUrl: 'https://api.social.example.test',
+      }),
+      clock: () => new Date('2026-08-27T19:30:00.000Z'),
+    });
+    const createInput = {
+      type: 'schedule' as const,
+      date: '2026-08-28T09:15:00.000Z',
+      shortLink: true,
+      tags: [],
+      posts: [
+        {
+          integration: { id: 'integration-linkedin-1' },
+          value: [{ content: 'Launch day', image: [] }],
+          settings: { visibility: 'PUBLIC' },
+        },
+      ],
+    };
+
+    await expect(client.validatePost(createInput)).resolves.toEqual([
+      {
+        identifier: 'linkedin',
+        name: 'LinkedIn',
+        emptyContent: false,
+        valid: true,
+        errors: true,
+        tooLong: false,
+      },
+    ]);
+    expect(request).toHaveBeenCalledWith({
+      body: { ...createInput, creationMethod: 'API' },
+      credential: {
+        apiKey: 'tenant-secret',
+        apiUrl: 'https://api.social.example.test',
+      },
+      method: 'POST',
+      path: '/public/v1/posts/validate',
+    });
   });
 
   it('preserves bounded provider rejection text while redacting credentials and content', async () => {

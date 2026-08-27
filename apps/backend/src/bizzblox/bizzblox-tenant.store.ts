@@ -14,7 +14,7 @@ type StoredBizzbloxTenant = Omit<BizzbloxTenantRecord, 'recoveryConsumedAt'> & {
 export type BizzbloxTenantTransaction = Readonly<{
   bizzbloxTenant: Readonly<{
     create(input: {
-      data: BizzbloxTenantCandidate;
+      data: Omit<BizzbloxTenantCandidate, 'organizationApiKey'>;
     }): Promise<StoredBizzbloxTenant>;
     findUnique(input: {
       where: { externalTenantHandle: string };
@@ -26,7 +26,20 @@ export type BizzbloxTenantTransaction = Readonly<{
   }>;
   organization: Readonly<{
     create(input: {
-      data: { id: string; name: string };
+      data: {
+        apiKey: string;
+        id: string;
+        name: string;
+        subscription: {
+          create: {
+            identifier: string;
+            isLifetime: true;
+            period: 'YEARLY';
+            subscriptionTier: 'ULTIMATE';
+            totalChannels: number;
+          };
+        };
+      };
       select: { id: true };
     }): Promise<{ id: string }>;
   }>;
@@ -81,15 +94,26 @@ export class PrismaBizzbloxTenantStore implements BizzbloxTenantStore {
             where: { externalTenantHandle: candidate.externalTenantHandle },
           });
           if (!existing) {
+            const { organizationApiKey, ...tenantCandidate } = candidate;
             await transaction.organization.create({
               data: {
                 id: candidate.organizationId,
+                apiKey: organizationApiKey,
                 name: `Managed social tenant ${candidate.organizationProvenance}`,
+                subscription: {
+                  create: {
+                    identifier: 'bizzblox-managed-service',
+                    isLifetime: true,
+                    period: 'YEARLY',
+                    subscriptionTier: 'ULTIMATE',
+                    totalChannels: 10_000,
+                  },
+                },
               },
               select: { id: true },
             });
             const created = await transaction.bizzbloxTenant.create({
-              data: candidate,
+              data: tenantCandidate,
             });
             return Object.freeze({ created: true, record: record(created) });
           }

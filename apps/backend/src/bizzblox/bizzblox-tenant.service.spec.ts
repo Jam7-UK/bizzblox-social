@@ -43,6 +43,7 @@ describe('BizzBLOX tenant service', () => {
       },
       {
         createOrganization: () => ({
+          apiKey: 'bbx-internal-api-key',
           id: 'postiz-org-1',
           provenance: 'orgprov_01J6DCZP6S4XFX58GRY7H6QYJD',
         }),
@@ -96,7 +97,13 @@ describe('BizzBLOX tenant service', () => {
         sealCredential: async () => 'unused',
         unsealCredential: async () => 'unused',
       },
-      { createOrganization: () => ({ id: 'unused', provenance: 'unused' }) }
+      {
+        createOrganization: () => ({
+          apiKey: 'unused',
+          id: 'unused',
+          provenance: 'unused',
+        }),
+      }
     );
 
     await expect(service.readTenant('tenant_opaque_123')).resolves.toEqual({

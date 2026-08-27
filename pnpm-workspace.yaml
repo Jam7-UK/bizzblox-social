@@ -14,6 +14,5 @@ overrides:
   next: 16.3.1
   react: 19.2.4
   react-dom: 19.2.4
-restrictManifestChanges: true
 syncInjectedDepsAfterScripts:
   - build

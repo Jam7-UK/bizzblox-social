@@ -90,12 +90,14 @@ export type MediaReference = Readonly<{
 }>;
 
 export type PostContent = Readonly<{
+  id?: string;
   content: string;
   image: readonly MediaReference[];
   delay?: number;
 }>;
 
 export type PostDestination = Readonly<{
+  group?: string;
   integration: Readonly<{ id: string }>;
   value: readonly PostContent[];
   settings: JsonValue;
@@ -106,16 +108,31 @@ export type PostTag = Readonly<{ label: string; value: string }>;
 export type CreatePostInput = Readonly<{
   type: 'draft' | 'now' | 'schedule' | 'update';
   date: string;
+  idempotencyKey?: string;
   shortLink: boolean;
   tags: readonly PostTag[];
   posts: readonly PostDestination[];
   signal?: AbortSignal;
 }>;
 
+export type PostValidationResult = Readonly<{
+  identifier: string;
+  name: string;
+  emptyContent: boolean;
+  valid: boolean;
+  errors: true | string;
+  tooLong: boolean;
+  settingsError?: string;
+}>;
+
+export type CreatedPostOutcome = Readonly<{
+  postId: string;
+  integration: string;
+}>;
 export type PostOutcome = Readonly<Record<string, JsonValue>>;
 export type PostSummary = Readonly<Record<string, JsonValue>>;
 export type DeleteOutcome = Readonly<Record<string, JsonValue>>;
-export type AnalyticsOutcome = Readonly<Record<string, JsonValue>>;
+export type AnalyticsOutcome = JsonValue;
 
 export type ListPostsInput = Readonly<{
   startDate?: string;
@@ -142,7 +159,10 @@ export interface PostizAgentClient {
   getIntegrationSettings(integrationId: string): Promise<ProviderContract>;
   triggerIntegrationTool(input: ProviderToolCall): Promise<ProviderToolOutcome>;
   upload(input: UploadInput): Promise<UploadedMedia>;
-  createPost(input: CreatePostInput): Promise<PostOutcome>;
+  validatePost(
+    input: CreatePostInput
+  ): Promise<readonly PostValidationResult[]>;
+  createPost(input: CreatePostInput): Promise<readonly CreatedPostOutcome[]>;
   listPosts(input: ListPostsInput): Promise<readonly PostSummary[]>;
   readPost(input: ReadPostInput): Promise<PostOutcome>;
   changePostStatus(input: ChangePostStatusInput): Promise<PostOutcome>;

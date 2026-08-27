@@ -1,4 +1,4 @@
-import { hkdfSync, randomBytes } from 'node:crypto';
+import { hkdfSync, randomBytes, randomUUID } from 'node:crypto';
 
 import { MiddlewareConsumer, Module, type NestModule } from '@nestjs/common';
 
@@ -15,6 +15,20 @@ import {
 } from './bizzblox-auth.guard';
 import { BizzbloxJwtClaimVerifier } from './bizzblox-claim';
 import { BizzbloxController } from './bizzblox.controller';
+import { BizzbloxPublicationsController } from './bizzblox-publications.controller';
+import {
+  BIZZBLOX_CHANNEL_ACCESS,
+  BIZZBLOX_POSTIZ_CLIENTS,
+  BIZZBLOX_PUBLICATION_IDS,
+  BIZZBLOX_PUBLICATION_STORE,
+  BizzbloxPublicationsService,
+} from './bizzblox-publications.service';
+import {
+  BIZZBLOX_PUBLICATION_DATABASE,
+  PrismaBizzbloxChannelAccess,
+  PrismaBizzbloxPublicationStore,
+} from './bizzblox-publication.store';
+import { BizzbloxPostizClientFactory } from './bizzblox-postiz-client.factory';
 import { BizzbloxIamContextMiddleware } from './bizzblox-iam.middleware';
 import { BizzbloxRuntimeOrganizationFactory } from './bizzblox-organization.factory';
 import {
@@ -89,17 +103,35 @@ function credentialCodec(): BizzbloxTenantCredentialCodec {
 }
 
 @Module({
-  controllers: [BizzbloxController],
+  controllers: [BizzbloxController, BizzbloxPublicationsController],
   providers: [
     BizzbloxAuthGuard,
     BizzbloxIamContextMiddleware,
     BizzbloxTenantService,
+    BizzbloxPublicationsService,
     PrismaBizzbloxTenantStore,
+    PrismaBizzbloxPublicationStore,
+    PrismaBizzbloxChannelAccess,
+    BizzbloxPostizClientFactory,
     PrismaBizzbloxTenantAccess,
     RedisBizzbloxReplayStore,
     BizzbloxRuntimeOrganizationFactory,
     { provide: BIZZBLOX_TENANT_DATABASE, useExisting: PrismaService },
+    { provide: BIZZBLOX_PUBLICATION_DATABASE, useExisting: PrismaService },
     { provide: BIZZBLOX_TENANT_STORE, useExisting: PrismaBizzbloxTenantStore },
+    {
+      provide: BIZZBLOX_PUBLICATION_STORE,
+      useExisting: PrismaBizzbloxPublicationStore,
+    },
+    {
+      provide: BIZZBLOX_CHANNEL_ACCESS,
+      useExisting: PrismaBizzbloxChannelAccess,
+    },
+    {
+      provide: BIZZBLOX_POSTIZ_CLIENTS,
+      useExisting: BizzbloxPostizClientFactory,
+    },
+    { provide: BIZZBLOX_PUBLICATION_IDS, useValue: { randomId: randomUUID } },
     {
       provide: BIZZBLOX_TENANT_CREDENTIALS,
       useFactory: credentialCodec,
@@ -141,6 +173,8 @@ function credentialCodec(): BizzbloxTenantCredentialCodec {
 })
 export class BizzbloxModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(BizzbloxIamContextMiddleware).forRoutes(BizzbloxController);
+    consumer
+      .apply(BizzbloxIamContextMiddleware)
+      .forRoutes(BizzbloxController, BizzbloxPublicationsController);
   }
 }

@@ -42,6 +42,7 @@ export type BizzbloxTenantCandidate = Readonly<{
   credentialHash: string;
   externalTenantHandle: string;
   organizationId: string;
+  organizationApiKey: string;
   organizationProvenance: string;
   payloadDigest: string;
   recoveryEnvelope: string;
@@ -70,7 +71,11 @@ export interface BizzbloxTenantCredentials {
 }
 
 export interface BizzbloxOrganizationFactory {
-  createOrganization(): Readonly<{ id: string; provenance: string }>;
+  createOrganization(): Readonly<{
+    apiKey: string;
+    id: string;
+    provenance: string;
+  }>;
 }
 
 export type BizzbloxTenantErrorCode =
@@ -129,6 +134,7 @@ export class BizzbloxTenantService {
       credentialHash: this.credentials.hashCredential(clearCredential),
       externalTenantHandle: input.externalTenantHandle,
       organizationId: organization.id,
+      organizationApiKey: organization.apiKey,
       organizationProvenance: organization.provenance,
       payloadDigest: payloadDigest(input),
       recoveryEnvelope: await this.credentials.sealCredential(clearCredential),

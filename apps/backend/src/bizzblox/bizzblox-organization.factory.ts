@@ -10,6 +10,7 @@ export class BizzbloxRuntimeOrganizationFactory
 {
   createOrganization() {
     return Object.freeze({
+      apiKey: `bbx_internal_${randomBytes(32).toString('base64url')}`,
       id: randomUUID(),
       provenance: `orgprov_${randomBytes(18).toString('base64url')}`,
     });

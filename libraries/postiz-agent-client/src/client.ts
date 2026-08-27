@@ -5,6 +5,8 @@ import type {
   PostizAgentClientDependencies,
   ProviderContract,
   ProviderTool,
+  CreatedPostOutcome,
+  PostValidationResult,
   UploadedMedia,
   PostizTransportRequest,
 } from './types';
@@ -30,7 +32,7 @@ function integrationSummary(value: unknown): IntegrationSummary {
     id: value.id,
     identifier: value.identifier,
     name: value.name,
-    picture,
+    picture: picture as string | null,
     disabled: value.disabled,
   });
 }
@@ -105,6 +107,49 @@ function uploadedMedia(value: unknown): UploadedMedia {
     throw new Error('Postiz returned an invalid upload response.');
   }
   return Object.freeze({ id: value.id, path: value.path, name: value.name });
+}
+
+function postOutcome(value: unknown): CreatedPostOutcome {
+  if (
+    !isRecord(value) ||
+    typeof value.postId !== 'string' ||
+    typeof value.integration !== 'string'
+  ) {
+    throw new Error('Postiz returned an invalid create-post response.');
+  }
+  return Object.freeze({
+    integration: value.integration,
+    postId: value.postId,
+  });
+}
+
+function postValidation(value: unknown): PostValidationResult {
+  if (
+    !isRecord(value) ||
+    typeof value.identifier !== 'string' ||
+    typeof value.name !== 'string' ||
+    typeof value.emptyContent !== 'boolean' ||
+    typeof value.valid !== 'boolean' ||
+    !(value.errors === true || typeof value.errors === 'string') ||
+    typeof value.tooLong !== 'boolean' ||
+    !(
+      value.settingsError === undefined ||
+      typeof value.settingsError === 'string'
+    )
+  ) {
+    throw new Error('Postiz returned an invalid post-validation response.');
+  }
+  return Object.freeze({
+    identifier: value.identifier,
+    name: value.name,
+    emptyContent: value.emptyContent,
+    valid: value.valid,
+    errors: value.errors,
+    tooLong: value.tooLong,
+    ...(typeof value.settingsError === 'string'
+      ? { settingsError: value.settingsError }
+      : {}),
+  });
 }
 
 export function createPostizAgentClient(
@@ -202,6 +247,19 @@ export function createPostizAgentClient(
       });
       return uploadedMedia(body);
     },
+    async validatePost(input) {
+      const { signal, ...post } = input;
+      const body = await request({
+        body: { ...post, creationMethod: 'API' },
+        method: 'POST',
+        path: '/public/v1/posts/validate',
+        ...(signal ? { signal } : {}),
+      });
+      if (!Array.isArray(body)) {
+        throw new Error('Postiz returned an invalid post-validation response.');
+      }
+      return Object.freeze(body.map(postValidation));
+    },
     async createPost(input) {
       const { signal, ...post } = input;
       const body = await request({
@@ -210,7 +268,10 @@ export function createPostizAgentClient(
         path: '/public/v1/posts',
         ...(signal ? { signal } : {}),
       });
-      return jsonObject(body, 'create-post');
+      if (!Array.isArray(body)) {
+        throw new Error('Postiz returned an invalid create-post response.');
+      }
+      return Object.freeze(body.map(postOutcome));
     },
     async listPosts(input) {
       const now = dependencies.clock();
@@ -266,7 +327,10 @@ export function createPostizAgentClient(
         query: { date: String(input.days) },
         ...(input.signal ? { signal: input.signal } : {}),
       });
-      return jsonObject(body, 'post-analytics');
+      if (!isJsonValue(body)) {
+        throw new Error('Postiz returned an invalid post-analytics response.');
+      }
+      return body;
     },
   };
   return Object.freeze(client);

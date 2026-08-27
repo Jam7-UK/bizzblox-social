@@ -66,6 +66,7 @@ import { UsersService } from '@gitroom/nestjs-libraries/database/prisma/users/us
 import { SuperAdminGuard } from '@gitroom/backend/services/auth/super.admin.guard';
 import { timer } from '@gitroom/helpers/utils/timer';
 import { ioRedis } from '@gitroom/nestjs-libraries/redis/redis.service';
+import { BizzbloxPublicPostIdempotency } from '@gitroom/backend/bizzblox/bizzblox-public-post-idempotency';
 
 @ApiTags('Public API')
 @Controller('/public/v1')
@@ -79,7 +80,8 @@ export class PublicIntegrationsController {
     private _notificationService: NotificationService,
     private _integrationManager: IntegrationManager,
     private _refreshIntegrationService: RefreshIntegrationService,
-    private _usersService: UsersService
+    private _usersService: UsersService,
+    private _bizzbloxIdempotency: BizzbloxPublicPostIdempotency
   ) {}
 
   @Post('/upload')
@@ -265,7 +267,31 @@ export class PublicIntegrationsController {
       ? (rawBody.creationMethod as 'CLI' | 'API')
       : 'API';
 
-    return this._postsService.createPost(org.id, body, creationMethod);
+    const idempotencyKey = rawBody?.idempotencyKey;
+    const idempotent = await this._bizzbloxIdempotency.verify(
+      org.id,
+      idempotencyKey,
+      body.posts
+    );
+    if (idempotencyKey !== undefined && !idempotent) {
+      throw new HttpException({ msg: 'Invalid idempotent post request.' }, 400);
+    }
+    return this._postsService.createPost(
+      org.id,
+      body,
+      creationMethod,
+      idempotent
+    );
+  }
+
+  @Post('/posts/validate')
+  async validatePost(
+    @GetOrgFromRequest() org: Organization,
+    @Body() rawBody: any
+  ) {
+    Sentry.metrics.count('public_api-request', 1);
+    const body = await this._postsService.mapTypeToPost(rawBody, org.id, false);
+    return await this._postsService.validatePosts(org.id, body.posts);
   }
 
   @Delete('/posts/:id')
@@ -495,6 +521,15 @@ export class PublicIntegrationsController {
   ) {
     Sentry.metrics.count('public_api-request', 1);
     return this._postsService.getMissingContent(org.id, id);
+  }
+
+  @Get('/posts/:id')
+  async readPost(
+    @GetOrgFromRequest() org: Organization,
+    @Param('id') id: string
+  ) {
+    Sentry.metrics.count('public_api-request', 1);
+    return await this._postsService.getPost(org.id, id);
   }
 
   @Put('/posts/:id/settings')
