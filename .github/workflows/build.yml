@@ -9,11 +9,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
 
     strategy:
       matrix:
-        node-version: ['22.12.0']
+        node-version: ['22.22.1']
         # See supported Node.js release schedule at https://nodejs.org/en/about/releases/
 
     steps:
@@ -27,9 +26,9 @@ jobs:
           node-version: ${{ matrix.node-version }}
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v2
+        uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 10.33.0
           run_install: false
 
       - name: Get pnpm store directory
@@ -37,18 +36,18 @@ jobs:
         run: |
           echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
 
-#      - name: Setup pnpm cache
-#        uses: actions/cache@v4
-#        with:
-#          path: |
-#            ${{ env.STORE_PATH }}
-#            ${{ github.workspace }}/.next/cache
-#          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}-${{ hashFiles('**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx') }}
-#          restore-keys: |
-#            ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}-
+      #      - name: Setup pnpm cache
+      #        uses: actions/cache@v4
+      #        with:
+      #          path: |
+      #            ${{ env.STORE_PATH }}
+      #            ${{ github.workspace }}/.next/cache
+      #          key: ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}-${{ hashFiles('**/*.js', '**/*.jsx', '**/*.ts', '**/*.tsx') }}
+      #          restore-keys: |
+      #            ${{ runner.os }}-pnpm-${{ hashFiles('**/pnpm-lock.yaml') }}-
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Build
         run: pnpm run build
