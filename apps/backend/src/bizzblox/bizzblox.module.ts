@@ -58,6 +58,7 @@ import {
 } from './bizzblox-publication.store';
 import { BizzbloxPostizClientFactory } from './bizzblox-postiz-client.factory';
 import { BizzbloxIamContextMiddleware } from './bizzblox-iam.middleware';
+import { BizzbloxHealthController } from './bizzblox-health.controller';
 import { BizzbloxRuntimeOrganizationFactory } from './bizzblox-organization.factory';
 import { BizzbloxOAuthController } from './bizzblox-oauth.controller';
 import {
@@ -173,6 +174,7 @@ function connectionStateCodec(): BizzbloxConnectionStateCodec {
 
 @Module({
   controllers: [
+    BizzbloxHealthController,
     BizzbloxController,
     BizzbloxConnectionsController,
     BizzbloxOAuthController,

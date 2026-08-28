@@ -1,17 +1,24 @@
-BizzBLOX Social
-Copyright (C) 2026 Jam 7 Ltd
+BizzBLOX managed social publishing service
+Copyright (c) Postiz contributors and Jam 7 Ltd contributors
 
-This program is derived from Postiz:
-https://github.com/gitroomhq/postiz-app
+This service is derived from the Postiz application and adapts behavior from
+Postiz Agent. Both pinned upstream revisions and their source locations are
+recorded in BIZZBLOX_UPSTREAM.md. Upstream LICENSE, CCLA.md, ICLA.md, copyright
+notices, and Git history are preserved.
 
-The initial BizzBLOX source baseline is Postiz commit
-0f1647f7491a217d43eb5ae7a480484bdf0aff3e. Postiz copyright and authorship
-history are preserved in this repository and in the source files.
+The combined work is distributed under GNU Affero General Public License v3.0.
+The complete corresponding source for a deployed BizzBLOX revision must remain
+available from https://github.com/Jam7-UK/bizzblox-social and the matching
+corresponding-source workflow artifact.
 
-Modified by Jam 7 Ltd on 29 August 2026. At this revision, Jam 7 changes are
-limited to distribution identity, source provenance, modification notice, and
-security-reporting documentation. Later modifications remain visible in Git
-history.
+Jam 7 modifications include:
+- a side-effect-free typed Postiz Agent client;
+- exact-tenant IAM/claim/credential admission;
+- managed provider consent and opaque account/channel references;
+- live provider contracts and idempotent publication/readback/cancellation;
+- a deny-by-default white-label service route profile;
+- private AWS S3/KMS media storage and production container targets; and
+- BizzBLOX operational, source-publication, and security checks.
 
-The entire covered work is licensed under the GNU Affero General Public
-License, version 3. See LICENSE.
+No trademark rights are granted by the AGPL licence. Postiz names and marks
+remain the property of their respective owners.

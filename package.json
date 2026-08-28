@@ -1,9 +1,13 @@
 {
   "name": "gitroom",
   "version": "1.0.0",
-  "description": "",
+  "description": "Public AGPL provider runtime for BizzBLOX managed social publishing",
   "main": "index.js",
   "license": "AGPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Jam7-UK/bizzblox-social.git"
+  },
   "keywords": [],
   "author": "",
   "engines": {
@@ -37,6 +41,8 @@
     "docker-build": "./var/docker/docker-build.sh",
     "docker-create": "./var/docker/docker-create.sh",
     "postinstall": "pnpm run prisma-generate",
+    "source:check": "node scripts/check-bizzblox-source.mjs",
+    "runtime:check": "node scripts/check-runtime-closure.mjs",
     "test": "vitest run"
   },
   "dependencies": {

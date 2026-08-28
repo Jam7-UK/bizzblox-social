@@ -1,6 +1,7 @@
 import { initializeSentry } from '@gitroom/nestjs-libraries/sentry/initialize.sentry';
 initializeSentry('backend', true);
 import compression from 'compression';
+import type { NextFunction, Request, Response } from 'express';
 
 import { loadSwagger } from '@gitroom/helpers/swagger/load.swagger';
 import { json } from 'express';
@@ -19,6 +20,7 @@ import { PostValidationExceptionFilter } from '@gitroom/backend/api/routes/posts
 import { HttpExceptionFilter } from '@gitroom/nestjs-libraries/services/exception.filter';
 import { ConfigurationChecker } from '@gitroom/helpers/configuration/configuration.checker';
 import { startMcp } from '@gitroom/nestjs-libraries/chat/start.mcp';
+import { bizzbloxRoutePolicy } from './bizzblox/bizzblox-route-policy';
 
 async function start() {
   const app = await NestFactory.create(AppModule, {
@@ -47,6 +49,12 @@ async function start() {
       ],
     },
   });
+
+  if (process.env.BIZZBLOX_SERVICE_MODE === '1') {
+    app.use((request: Request, response: Response, next: NextFunction) =>
+      bizzbloxRoutePolicy(request, response, next)
+    );
+  }
 
   await startMcp(app);
 

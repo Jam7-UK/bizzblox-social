@@ -6,7 +6,27 @@ ignoreWorkspaceRootCheck: true
 injectWorkspacePackages: true
 nodeLinker: hoisted
 onlyBuiltDependencies:
+  - '@prisma/client'
+  - '@prisma/engines'
+  - '@sentry-internal/node-cpu-profiler'
   - bcrypt
+  - bufferutil
+  - prisma
+  - sharp
+  - utf-8-validate
+ignoredBuiltDependencies:
+  - '@nestjs/core'
+  - '@openapitools/openapi-generator-cli'
+  - '@parcel/watcher'
+  - '@scarf/scarf'
+  - '@sentry/cli'
+  - '@swc/core'
+  - canvas
+  - core-js
+  - core-js-pure
+  - esbuild
+  - protobufjs
+  - unrs-resolver
 overrides:
   '@types/react': 19.1.8
   '@types/react-dom': 19.1.6
