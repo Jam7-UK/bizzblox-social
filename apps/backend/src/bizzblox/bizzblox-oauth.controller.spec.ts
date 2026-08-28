@@ -19,7 +19,7 @@ describe('BizzBLOX branded OAuth callback', () => {
       }),
     };
     const controller = new BizzbloxOAuthController(connections as never, {
-      ampReturnUrl: 'https://mvp.bizzblox.com/settings/integrations/social',
+      ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
       clock: () => new Date('2026-08-27T22:02:00.000Z'),
       publicOrigin: 'https://social.bizzblox.com',
     });
@@ -38,7 +38,7 @@ describe('BizzBLOX branded OAuth callback', () => {
     expect(result.statusCode).toBe(303);
     const redirect = new URL(result.url);
     expect(`${redirect.origin}${redirect.pathname}`).toBe(
-      'https://mvp.bizzblox.com/settings/integrations/social'
+      'https://mvp.bizzblox.com/settings/social'
     );
     expect(redirect.searchParams.get('social')).toBe('selection_required');
     const encoded = new URLSearchParams(redirect.hash.slice(1)).get(
@@ -48,6 +48,7 @@ describe('BizzBLOX branded OAuth callback', () => {
     expect(
       JSON.parse(Buffer.from(encoded!, 'base64url').toString('utf8'))
     ).toEqual({
+      provider: 'linkedin',
       attemptHandle: 'selection-attempt-1',
       expiresAt: Date.parse('2026-08-27T22:07:00.000Z'),
       options: [
@@ -66,12 +67,11 @@ describe('BizzBLOX branded OAuth callback', () => {
     const connections = {
       completeCallback: vi.fn().mockResolvedValue({
         outcome: 'failed',
-        redirectUrl:
-          'https://mvp.bizzblox.com/settings/integrations/social?social=failed',
+        redirectUrl: 'https://mvp.bizzblox.com/settings/social?social=failed',
       }),
     };
     const controller = new BizzbloxOAuthController(connections as never, {
-      ampReturnUrl: 'https://mvp.bizzblox.com/settings/integrations/social',
+      ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
       clock: () => new Date('2026-08-27T22:02:00.000Z'),
       publicOrigin: 'https://social.bizzblox.com',
     });
@@ -80,7 +80,7 @@ describe('BizzBLOX branded OAuth callback', () => {
       controller.callback('linkedin', undefined, undefined)
     ).resolves.toEqual({
       statusCode: 303,
-      url: 'https://mvp.bizzblox.com/settings/integrations/social?social=failed',
+      url: 'https://mvp.bizzblox.com/settings/social?social=failed',
     });
   });
 });

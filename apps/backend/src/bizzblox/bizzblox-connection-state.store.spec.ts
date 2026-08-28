@@ -39,7 +39,7 @@ describe('BizzBLOX managed connection state store', () => {
       connectorRevision: 7,
       provider: 'linkedin',
       codeVerifier: 'pkce-verifier-1',
-      ampReturnUrl: 'https://mvp.bizzblox.com/settings/integrations/social',
+      ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
       expiresAt: Date.parse('2026-08-27T22:10:00.000Z'),
     };
 
@@ -86,7 +86,7 @@ describe('BizzBLOX managed connection state store', () => {
       connectorRevision: 7,
       provider: 'linkedin',
       integrationId: 'integration-linkedin-1',
-      ampReturnUrl: 'https://mvp.bizzblox.com/settings/integrations/social',
+      ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
       expiresAt: Date.parse('2026-08-27T22:05:00.000Z'),
       options: [
         {

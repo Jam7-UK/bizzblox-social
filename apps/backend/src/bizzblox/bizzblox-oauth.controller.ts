@@ -58,6 +58,7 @@ export class BizzbloxOAuthController {
       redirect.hash = new URLSearchParams({
         selection: Buffer.from(
           JSON.stringify({
+            provider,
             attemptHandle: result.attemptHandle,
             expiresAt: result.expiresAt,
             options: result.options,
