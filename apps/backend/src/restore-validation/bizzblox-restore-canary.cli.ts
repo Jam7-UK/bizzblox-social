@@ -6,6 +6,7 @@ import {
 } from '@aws-sdk/client-s3';
 
 import type { RestoreDatabaseKind } from './bizzblox-database-restore-probe';
+import { restoreDatabaseUrlFromEnvironment } from './bizzblox-restore-database-config';
 import {
   persistDatabaseRestoreCanary,
   persistMediaRestoreCanary,
@@ -36,10 +37,14 @@ function kind(args: readonly string[]): RestoreCanaryKind {
   return args[1] as RestoreCanaryKind;
 }
 
-function productionDependencies(): RestoreCanaryDependencies {
+function productionDependencies(
+  environment: Readonly<Record<string, string | undefined>>
+): RestoreCanaryDependencies {
   return Object.freeze({
     database: async () => {
-      const client = new PrismaClient();
+      const client = new PrismaClient({
+        datasourceUrl: restoreDatabaseUrlFromEnvironment(environment),
+      });
       try {
         await client.$connect();
         return await persistDatabaseRestoreCanary({
@@ -73,7 +78,7 @@ function productionDependencies(): RestoreCanaryDependencies {
 export async function runRestoreCanaryCli(
   args: readonly string[],
   environment: Readonly<Record<string, string | undefined>>,
-  dependencies: RestoreCanaryDependencies = productionDependencies()
+  dependencies: RestoreCanaryDependencies = productionDependencies(environment)
 ): Promise<string> {
   try {
     const resourceKind = kind(args);

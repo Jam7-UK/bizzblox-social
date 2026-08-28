@@ -1,4 +1,6 @@
 import { PrismaClient } from '@prisma/client';
+
+import { restoreDatabaseUrlFromEnvironment } from './bizzblox-restore-database-config';
 import { createHash } from 'node:crypto';
 
 import {
@@ -284,9 +286,13 @@ export async function collectDatabaseRestoreSnapshot(
   }
 }
 
-/** Production adapter; DATABASE_URL is supplied only by the isolated task. */
-export function prismaRestoreDatabaseQueryClient(): RestoreDatabaseQueryClient {
-  const client = new PrismaClient();
+/** Production adapter; connection fields are supplied only by the isolated task. */
+export function prismaRestoreDatabaseQueryClient(
+  environment: Readonly<Record<string, string | undefined>>
+): RestoreDatabaseQueryClient {
+  const client = new PrismaClient({
+    datasourceUrl: restoreDatabaseUrlFromEnvironment(environment),
+  });
   return Object.freeze({
     connect: () => client.$connect(),
     disconnect: () => client.$disconnect(),

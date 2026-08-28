@@ -72,12 +72,14 @@ async function manifest(input: Readable): Promise<unknown> {
   }
 }
 
-function productionDependencies(): RestoreProbeDependencies {
+function productionDependencies(
+  environment: Readonly<Record<string, string | undefined>>
+): RestoreProbeDependencies {
   return Object.freeze({
     database: (databaseKind: RestoreDatabaseKind) =>
       collectDatabaseRestoreSnapshot(
         databaseKind,
-        prismaRestoreDatabaseQueryClient()
+        prismaRestoreDatabaseQueryClient(environment)
       ),
     media: (bucket: string) =>
       collectMediaRestoreSnapshot(bucket, s3RestoreMediaCommandClient()),
@@ -89,7 +91,7 @@ export async function runRestoreProbeCli(
   args: readonly string[],
   input: Readable,
   environment: Readonly<Record<string, string | undefined>>,
-  dependencies: RestoreProbeDependencies = productionDependencies()
+  dependencies: RestoreProbeDependencies = productionDependencies(environment)
 ): Promise<string> {
   try {
     const request = invocation(args);
