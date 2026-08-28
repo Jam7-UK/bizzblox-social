@@ -55,6 +55,13 @@ export interface BizzbloxChannelDirectory {
       contractDigest: string;
     }>
   ): Promise<BizzbloxManagedChannelRecord | null>;
+  markDisconnected(
+    input: Readonly<{
+      organizationId: string;
+      channelHandle: string;
+      connectorRevision: number;
+    }>
+  ): Promise<BizzbloxManagedChannelRecord | null>;
 }
 
 export interface BizzbloxOpaqueRefs {

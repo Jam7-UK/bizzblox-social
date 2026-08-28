@@ -1,7 +1,12 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
 import type { JsonValue } from '@bizzblox/postiz-agent-client';
+
+import {
+  BIZZBLOX_CHANNEL_DIRECTORY,
+  type BizzbloxChannelDirectory,
+} from './bizzblox-contract.service';
 
 export const BIZZBLOX_CONNECTION_PROVIDERS = Symbol(
   'BIZZBLOX_CONNECTION_PROVIDERS'
@@ -64,6 +69,7 @@ export interface BizzbloxConnectionProviderGateway {
       code: string;
       codeVerifier: string;
       callbackUrl: string;
+      reconnectIntegrationId?: string;
     }>
   ): Promise<BizzbloxProviderConnectionOutcome>;
   completeCustomFields(
@@ -91,6 +97,20 @@ export interface BizzbloxConnectionProviderGateway {
       selector: Readonly<Record<string, JsonValue>>;
     }>
   ): Promise<void>;
+  disconnectAccount?(
+    input: Readonly<{
+      organizationId: string;
+      connectorRevision: number;
+      integrationId: string;
+    }>
+  ): Promise<void>;
+  resolveReconnectProvider?(
+    input: Readonly<{
+      organizationId: string;
+      connectorRevision: number;
+      integrationId: string;
+    }>
+  ): Promise<string>;
 }
 
 export type BizzbloxAuthorizationState = Readonly<{
@@ -100,6 +120,7 @@ export type BizzbloxAuthorizationState = Readonly<{
   codeVerifier: string;
   ampReturnUrl: string;
   expiresAt: number;
+  reconnectChannelHandle?: string;
 }>;
 
 export type BizzbloxSelectionState = Readonly<{
@@ -163,6 +184,14 @@ function boundedCallbackValue(value: string): string {
   return normalized;
 }
 
+function opaqueChannelHandle(value: string): string {
+  const normalized = value.trim();
+  if (!/^bbx_ch_[A-Za-z0-9_-]{8,256}$/.test(normalized)) {
+    throw new BizzbloxConnectionInputError('Invalid social channel.');
+  }
+  return normalized;
+}
+
 function validatedConfig(config: BizzbloxConnectionConfig) {
   const publicOrigin = new URL(config.publicOrigin);
   const ampReturnUrl = new URL(config.ampReturnUrl);
@@ -199,13 +228,104 @@ export class BizzbloxConnectionsService {
     private readonly providers: BizzbloxConnectionProviderGateway,
     @Inject(BIZZBLOX_CONNECTION_STATES)
     private readonly states: BizzbloxConnectionStateStore,
-    @Inject(BIZZBLOX_CONNECTION_CONFIG) config: BizzbloxConnectionConfig
+    @Inject(BIZZBLOX_CONNECTION_CONFIG) config: BizzbloxConnectionConfig,
+    @Optional()
+    @Inject(BIZZBLOX_CHANNEL_DIRECTORY)
+    private readonly channels?: BizzbloxChannelDirectory
   ) {
     this.config = validatedConfig(config);
   }
 
   async listProviders() {
     return await this.providers.listProviders();
+  }
+
+  async disconnect(
+    organizationId: string,
+    connectorRevision: number,
+    input: Readonly<{ channelHandle: string }>
+  ) {
+    const channelHandle = opaqueChannelHandle(input.channelHandle);
+    if (!this.channels || !this.providers.disconnectAccount) {
+      throw new Error('Social channel recovery is unavailable.');
+    }
+    const channel = await this.channels.read(organizationId, channelHandle);
+    if (!channel || channel.organizationId !== organizationId) {
+      throw new BizzbloxConnectionInputError('Social channel was not found.');
+    }
+    if (channel.connectorRevision !== connectorRevision) {
+      throw new BizzbloxConnectionInputError(
+        'Social channel revision is stale.'
+      );
+    }
+    if (channel.status === 'disconnected') {
+      return Object.freeze({ outcome: 'disconnected' as const });
+    }
+    await this.providers.disconnectAccount({
+      organizationId,
+      connectorRevision,
+      integrationId: channel.integrationId,
+    });
+    const disconnected = await this.channels.markDisconnected({
+      organizationId,
+      channelHandle,
+      connectorRevision,
+    });
+    if (!disconnected || disconnected.status !== 'disconnected') {
+      throw new Error('Social channel state did not converge.');
+    }
+    return Object.freeze({ outcome: 'disconnected' as const });
+  }
+
+  async reconnect(
+    organizationId: string,
+    connectorRevision: number,
+    input: Readonly<{ channelHandle: string }>
+  ) {
+    const channelHandle = opaqueChannelHandle(input.channelHandle);
+    if (!this.channels || !this.providers.resolveReconnectProvider) {
+      throw new Error('Social channel recovery is unavailable.');
+    }
+    const channel = await this.channels.read(organizationId, channelHandle);
+    if (
+      !channel ||
+      channel.organizationId !== organizationId ||
+      channel.connectorRevision !== connectorRevision
+    ) {
+      throw new BizzbloxConnectionInputError(
+        'Social channel is stale or foreign.'
+      );
+    }
+    const provider = providerIdentifier(
+      await this.providers.resolveReconnectProvider({
+        organizationId,
+        connectorRevision,
+        integrationId: channel.integrationId,
+      })
+    );
+    const callbackUrl = new URL(
+      `/oauth/bizzblox/callback/${provider}`,
+      this.config.publicOrigin
+    ).toString();
+    const authorization = await this.providers.beginAuthorization(
+      provider,
+      callbackUrl
+    );
+    const expiresAt = this.config.clock().getTime() + 10 * 60_000;
+    await this.states.saveAuthorization(authorization.providerState, {
+      organizationId,
+      connectorRevision,
+      provider,
+      codeVerifier: authorization.codeVerifier,
+      ampReturnUrl: this.config.ampReturnUrl,
+      expiresAt,
+      reconnectChannelHandle: channelHandle,
+    });
+    return Object.freeze({
+      mode: 'redirect' as const,
+      authorizationUrl: authorization.authorizationUrl,
+      expiresAt,
+    });
   }
 
   async begin(
@@ -318,6 +438,20 @@ export class BizzbloxConnectionsService {
         `/oauth/bizzblox/callback/${provider}`,
         this.config.publicOrigin
       ).toString();
+      const reconnectChannel = state.reconnectChannelHandle
+        ? await this.channels?.read(
+            state.organizationId,
+            state.reconnectChannelHandle
+          )
+        : undefined;
+      if (
+        state.reconnectChannelHandle &&
+        (!reconnectChannel ||
+          reconnectChannel.connectorRevision !== state.connectorRevision ||
+          reconnectChannel.organizationId !== state.organizationId)
+      ) {
+        return failed;
+      }
       const connection = await this.providers.completeAuthorization({
         organizationId: state.organizationId,
         connectorRevision: state.connectorRevision,
@@ -325,7 +459,16 @@ export class BizzbloxConnectionsService {
         code,
         codeVerifier: state.codeVerifier,
         callbackUrl,
+        ...(reconnectChannel
+          ? { reconnectIntegrationId: reconnectChannel.integrationId }
+          : {}),
       });
+      if (
+        reconnectChannel &&
+        connection.integrationId !== reconnectChannel.integrationId
+      ) {
+        return failed;
+      }
       if (connection.selections.length > 0) {
         const attemptHandle = this.config.createOpaqueHandle();
         const expiresAt = this.config.clock().getTime() + 5 * 60_000;

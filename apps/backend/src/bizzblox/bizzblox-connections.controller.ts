@@ -24,6 +24,8 @@ import {
 } from './bizzblox-connections.service';
 import {
   BizzbloxBeginConnectionDto,
+  BizzbloxDisconnectConnectionDto,
+  BizzbloxReconnectConnectionDto,
   BizzbloxProviderHelperDto,
   BizzbloxSelectConnectionDto,
 } from './dto/connection.dto';
@@ -91,6 +93,36 @@ export class BizzbloxConnectionsController {
     const authority = this.authority(request, 'connection.select');
     return await this.safe(async () =>
       this.connections.select(
+        authority.organizationId!,
+        authority.connectorRevision,
+        body
+      )
+    );
+  }
+
+  @Post('/connections:disconnect')
+  async disconnect(
+    @Req() request: BizzbloxVerifiedRequest,
+    @Body() body: BizzbloxDisconnectConnectionDto
+  ) {
+    const authority = this.authority(request, 'connection.disconnect');
+    return await this.safe(async () =>
+      this.connections.disconnect(
+        authority.organizationId!,
+        authority.connectorRevision,
+        body
+      )
+    );
+  }
+
+  @Post('/connections:reconnect')
+  async reconnect(
+    @Req() request: BizzbloxVerifiedRequest,
+    @Body() body: BizzbloxReconnectConnectionDto
+  ) {
+    const authority = this.authority(request, 'connection.reconnect');
+    return await this.safe(async () =>
+      this.connections.reconnect(
         authority.organizationId!,
         authority.connectorRevision,
         body

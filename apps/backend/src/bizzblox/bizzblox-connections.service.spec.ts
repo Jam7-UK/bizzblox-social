@@ -5,8 +5,136 @@ import {
   type BizzbloxConnectionProviderGateway,
   type BizzbloxConnectionStateStore,
 } from './bizzblox-connections.service';
+import type { BizzbloxChannelDirectory } from './bizzblox-contract.service';
 
 describe('BizzBLOX managed social consent', () => {
+  it('starts reconnect consent only for the exact opaque channel and revision', async () => {
+    const providers: BizzbloxConnectionProviderGateway = {
+      listProviders: vi.fn(),
+      completeAuthorization: vi.fn(),
+      completeCustomFields: vi.fn(),
+      selectAccount: vi.fn(),
+      describe: vi.fn(),
+      resolveReconnectProvider: vi.fn().mockResolvedValue('linkedin'),
+      beginAuthorization: vi.fn().mockResolvedValue({
+        authorizationUrl: 'https://linkedin.example/oauth',
+        providerState: 'provider-state-reconnect',
+        codeVerifier: 'pkce-reconnect',
+      }),
+    };
+    const states: BizzbloxConnectionStateStore = {
+      saveAuthorization: vi.fn(),
+      consumeAuthorization: vi.fn(),
+      saveSelection: vi.fn(),
+      consumeSelection: vi.fn(),
+    };
+    const channel = {
+      organizationId: 'postiz-org-1',
+      channelHandle: 'bbx_ch_exact_linkedin',
+      connectorRevision: 7,
+      contractDigest: 'sha256:current',
+      integrationId: 'integration-linkedin-1',
+      status: 'disconnected' as const,
+    };
+    const channels: BizzbloxChannelDirectory = {
+      synchronize: vi.fn(),
+      read: vi.fn().mockResolvedValue(channel),
+      updateContract: vi.fn(),
+      markDisconnected: vi.fn(),
+    };
+    const service = new BizzbloxConnectionsService(
+      providers,
+      states,
+      {
+        ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
+        clock: () => new Date('2026-08-27T22:03:00.000Z'),
+        publicOrigin: 'https://social.bizzblox.com',
+      },
+      channels
+    );
+
+    await expect(
+      service.reconnect('postiz-org-1', 7, {
+        channelHandle: channel.channelHandle,
+      })
+    ).resolves.toMatchObject({
+      mode: 'redirect',
+      authorizationUrl: 'https://linkedin.example/oauth',
+    });
+    expect(providers.resolveReconnectProvider).toHaveBeenCalledWith({
+      organizationId: 'postiz-org-1',
+      connectorRevision: 7,
+      integrationId: 'integration-linkedin-1',
+    });
+    expect(providers.beginAuthorization).toHaveBeenCalledWith(
+      'linkedin',
+      'https://social.bizzblox.com/oauth/bizzblox/callback/linkedin'
+    );
+  });
+
+  it('disconnects one opaque channel only through its exact tenant and revision', async () => {
+    const providers: BizzbloxConnectionProviderGateway = {
+      listProviders: vi.fn(),
+      beginAuthorization: vi.fn(),
+      completeAuthorization: vi.fn(),
+      completeCustomFields: vi.fn(),
+      selectAccount: vi.fn(),
+      disconnectAccount: vi.fn().mockResolvedValue(undefined),
+      describe: vi.fn(),
+    };
+    const states: BizzbloxConnectionStateStore = {
+      saveAuthorization: vi.fn(),
+      consumeAuthorization: vi.fn(),
+      saveSelection: vi.fn(),
+      consumeSelection: vi.fn(),
+    };
+    const channel = {
+      organizationId: 'postiz-org-1',
+      channelHandle: 'bbx_ch_exact_linkedin',
+      connectorRevision: 7,
+      contractDigest: 'sha256:current',
+      integrationId: 'integration-linkedin-1',
+      status: 'active' as const,
+    };
+    const channels: BizzbloxChannelDirectory = {
+      synchronize: vi.fn(),
+      read: vi.fn().mockResolvedValue(channel),
+      updateContract: vi.fn(),
+      markDisconnected: vi.fn().mockResolvedValue({
+        ...channel,
+        status: 'disconnected',
+      }),
+    };
+    const service = new BizzbloxConnectionsService(
+      providers,
+      states,
+      {
+        ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
+        clock: () => new Date('2026-08-27T22:03:00.000Z'),
+        publicOrigin: 'https://social.bizzblox.com',
+      },
+      channels
+    );
+
+    const result = await service.disconnect('postiz-org-1', 7, {
+      channelHandle: 'bbx_ch_exact_linkedin',
+    });
+
+    expect(result).toEqual({ outcome: 'disconnected' });
+    expect(providers.disconnectAccount).toHaveBeenCalledWith({
+      organizationId: 'postiz-org-1',
+      connectorRevision: 7,
+      integrationId: 'integration-linkedin-1',
+    });
+    expect(channels.markDisconnected).toHaveBeenCalledWith({
+      organizationId: 'postiz-org-1',
+      channelHandle: 'bbx_ch_exact_linkedin',
+      connectorRevision: 7,
+    });
+    expect(JSON.stringify(result)).not.toContain('postiz-org-1');
+    expect(JSON.stringify(result)).not.toContain('integration-linkedin-1');
+  });
+
   it('begins provider consent with a fixed branded callback and stores exact-tenant state', async () => {
     const providers: BizzbloxConnectionProviderGateway = {
       listProviders: vi.fn(),

@@ -17,6 +17,7 @@ describe('BizzBLOX service route policy', () => {
     ['GET', '/internal/bizzblox/v1/providers'],
     ['POST', '/internal/bizzblox/v1/connections:begin'],
     ['POST', '/internal/bizzblox/v1/connections:select'],
+    ['POST', '/internal/bizzblox/v1/connections:disconnect'],
     ['GET', '/internal/bizzblox/v1/channels'],
     ['GET', '/internal/bizzblox/v1/channels/channel_ref/contract'],
     ['POST', '/internal/bizzblox/v1/channels/channel_ref/tools/helper_ref'],

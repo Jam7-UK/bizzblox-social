@@ -32,6 +32,18 @@ export class BizzbloxSelectConnectionDto {
   optionRef: string;
 }
 
+export class BizzbloxDisconnectConnectionDto {
+  @IsString()
+  @Matches(/^bbx_ch_[A-Za-z0-9_-]{8,256}$/)
+  channelHandle: string;
+}
+
+export class BizzbloxReconnectConnectionDto {
+  @IsString()
+  @Matches(/^bbx_ch_[A-Za-z0-9_-]{8,256}$/)
+  channelHandle: string;
+}
+
 export class BizzbloxProviderHelperDto {
   @IsDefined()
   @IsObject()

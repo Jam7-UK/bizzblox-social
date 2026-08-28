@@ -118,4 +118,39 @@ describe('BizzBLOX exact-tenant channel directory', () => {
       },
     });
   });
+
+  it('marks a channel disconnected only through the exact tenant, handle, and revision', async () => {
+    const findUnique = vi.fn().mockResolvedValue({
+      ...row(),
+      status: 'disconnected',
+    });
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const database = {
+      $transaction: vi.fn(),
+      bizzbloxChannel: { findUnique, updateMany },
+    } as unknown as BizzbloxChannelDatabase;
+    const directory = new PrismaBizzbloxChannelDirectory(database);
+
+    await expect(
+      directory.markDisconnected({
+        organizationId: 'postiz-org-1',
+        channelHandle: 'bbx_ch_exact_linkedin',
+        connectorRevision: 7,
+      })
+    ).resolves.toEqual(
+      expect.objectContaining({
+        organizationId: 'postiz-org-1',
+        channelHandle: 'bbx_ch_exact_linkedin',
+        status: 'disconnected',
+      })
+    );
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'postiz-org-1',
+        externalChannelHandle: 'bbx_ch_exact_linkedin',
+        connectorRevision: 7,
+      },
+      data: { status: 'disconnected' },
+    });
+  });
 });

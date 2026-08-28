@@ -4,27 +4,26 @@ import type { BizzbloxVerifiedRequest } from './bizzblox-auth.guard';
 import { BizzbloxConnectionsController } from './bizzblox-connections.controller';
 
 describe('BizzBLOX internal connection controller', () => {
-  it('pins begin and select to the organization and revision from the guard', async () => {
+  it('pins begin, select, and disconnect to the organization and revision from the guard', async () => {
     const contracts = {
       listChannels: vi.fn(),
       readContract: vi.fn(),
       executeHelper: vi.fn(),
     };
     const connections = {
-      listProviders: vi
-        .fn()
-        .mockResolvedValue([
-          {
-            providerKey: 'linkedin',
-            label: 'LinkedIn',
-            connectionMode: 'oauth',
-          },
-        ]),
+      listProviders: vi.fn().mockResolvedValue([
+        {
+          providerKey: 'linkedin',
+          label: 'LinkedIn',
+          connectionMode: 'oauth',
+        },
+      ]),
       begin: vi.fn().mockResolvedValue({
         mode: 'redirect',
         authorizationUrl: 'https://linkedin.com/oauth',
       }),
       select: vi.fn().mockResolvedValue({ outcome: 'connected' }),
+      disconnect: vi.fn().mockResolvedValue({ outcome: 'disconnected' }),
     };
     const controller = new BizzbloxConnectionsController(
       contracts as never,
@@ -53,6 +52,13 @@ describe('BizzBLOX internal connection controller', () => {
         operation: 'connection.select',
       },
     } as BizzbloxVerifiedRequest;
+    const disconnectRequest = {
+      ...beginRequest,
+      bizzbloxAuth: {
+        ...beginRequest.bizzbloxAuth!,
+        operation: 'connection.disconnect',
+      },
+    } as BizzbloxVerifiedRequest;
 
     await expect(controller.providers(providerRequest)).resolves.toEqual([
       { providerKey: 'linkedin', label: 'LinkedIn', connectionMode: 'oauth' },
@@ -62,6 +68,9 @@ describe('BizzBLOX internal connection controller', () => {
       attemptHandle: 'selection-attempt-1',
       optionRef: 'selection-option-1',
     });
+    await controller.disconnect(disconnectRequest, {
+      channelHandle: 'bbx_ch_exact_linkedin',
+    });
 
     expect(connections.begin).toHaveBeenCalledWith('postiz-org-1', 7, {
       provider: 'linkedin',
@@ -70,6 +79,9 @@ describe('BizzBLOX internal connection controller', () => {
     expect(connections.select).toHaveBeenCalledWith('postiz-org-1', 7, {
       attemptHandle: 'selection-attempt-1',
       optionRef: 'selection-option-1',
+    });
+    expect(connections.disconnect).toHaveBeenCalledWith('postiz-org-1', 7, {
+      channelHandle: 'bbx_ch_exact_linkedin',
     });
   });
 });

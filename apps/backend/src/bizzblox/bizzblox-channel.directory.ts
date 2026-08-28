@@ -72,7 +72,10 @@ export interface BizzbloxChannelDatabase {
         externalChannelHandle: string;
         connectorRevision: number;
       }>;
-      data: Readonly<{ contractDigest: string }>;
+      data: Readonly<{
+        contractDigest?: string;
+        status?: 'disconnected';
+      }>;
     }): Promise<Readonly<{ count: number }>>;
   }>;
 }
@@ -179,6 +182,22 @@ export class PrismaBizzbloxChannelDirectory
         connectorRevision: input.connectorRevision,
       },
       data: { contractDigest: input.contractDigest },
+    });
+    return updated.count === 1
+      ? await this.read(input.organizationId, input.channelHandle)
+      : null;
+  }
+
+  async markDisconnected(
+    input: Parameters<BizzbloxChannelDirectory['markDisconnected']>[0]
+  ) {
+    const updated = await this.database.bizzbloxChannel.updateMany({
+      where: {
+        organizationId: input.organizationId,
+        externalChannelHandle: input.channelHandle,
+        connectorRevision: input.connectorRevision,
+      },
+      data: { status: 'disconnected' },
     });
     return updated.count === 1
       ? await this.read(input.organizationId, input.channelHandle)

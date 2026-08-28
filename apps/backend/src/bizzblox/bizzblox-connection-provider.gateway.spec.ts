@@ -3,6 +3,37 @@ import { describe, expect, it, vi } from 'vitest';
 import { PostizBizzbloxConnectionProviderGateway } from './bizzblox-connection-provider.gateway';
 
 describe('Postiz BizzBLOX connection provider gateway', () => {
+  it('disconnects only the exact organization integration through Postiz native recovery state', async () => {
+    const integration = {
+      id: 'integration-linkedin-1',
+      organizationId: 'postiz-org-1',
+    };
+    const integrations = {
+      getIntegrationById: vi.fn().mockResolvedValue(integration),
+      disconnectChannel: vi.fn().mockResolvedValue(undefined),
+    };
+    const gateway = new PostizBizzbloxConnectionProviderGateway(
+      {} as never,
+      integrations as never,
+      {} as never
+    );
+
+    await gateway.disconnectAccount({
+      organizationId: 'postiz-org-1',
+      connectorRevision: 7,
+      integrationId: 'integration-linkedin-1',
+    });
+
+    expect(integrations.getIntegrationById).toHaveBeenCalledWith(
+      'postiz-org-1',
+      'integration-linkedin-1'
+    );
+    expect(integrations.disconnectChannel).toHaveBeenCalledWith(
+      'postiz-org-1',
+      integration
+    );
+  });
+
   it('projects the live configured provider catalogue without provider secrets or implementation fields', async () => {
     const manager = {
       getAllIntegrations: vi.fn().mockResolvedValue({

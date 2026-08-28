@@ -238,6 +238,22 @@ export class PostizBizzbloxConnectionProviderGateway
     };
   }
 
+  async resolveReconnectProvider(input: {
+    organizationId: string;
+    connectorRevision: number;
+    integrationId: string;
+  }): Promise<string> {
+    const integration = await this.integrations.getIntegrationById(
+      input.organizationId,
+      input.integrationId
+    );
+    if (!integration) throw new Error('Social channel was not found.');
+    const provider = boundedText(integration.providerIdentifier, 100);
+    if (!provider) throw new Error('Social channel provider is unavailable.');
+    const migrationTarget = this.manager.getMigrationTarget(provider);
+    return this.provider(migrationTarget ?? provider).identifier;
+  }
+
   async completeAuthorization(
     input: Readonly<{
       organizationId: string;
@@ -246,16 +262,41 @@ export class PostizBizzbloxConnectionProviderGateway
       code: string;
       codeVerifier: string;
       callbackUrl: string;
+      reconnectIntegrationId?: string;
     }>
   ): Promise<BizzbloxProviderConnectionOutcome> {
     const provider = this.provider(input.provider);
-    const auth = validAuth(
+    let auth = validAuth(
       await provider.authenticate({
         code: input.code,
         codeVerifier: input.codeVerifier,
         callbackUrl: input.callbackUrl,
       })
     );
+    if (input.reconnectIntegrationId) {
+      const existing = await this.integrations.getIntegrationById(
+        input.organizationId,
+        input.reconnectIntegrationId
+      );
+      if (!existing) throw new Error('Social channel was not found.');
+      if (provider.reConnect) {
+        auth = validAuth(
+          await provider.reConnect(
+            auth.id,
+            existing.internalId,
+            auth.accessToken
+          )
+        );
+      }
+      if (String(auth.id) !== String(existing.internalId)) {
+        await this.integrations.migrateIntegration(
+          input.organizationId,
+          existing.internalId,
+          provider.identifier,
+          { id: String(auth.id), username: auth.username }
+        );
+      }
+    }
     return await this.persist(input.organizationId, provider, auth);
   }
 
@@ -338,6 +379,22 @@ export class PostizBizzbloxConnectionProviderGateway
       input.organizationId,
       input.integrationId,
       input.selector
+    );
+  }
+
+  async disconnectAccount(input: {
+    organizationId: string;
+    connectorRevision: number;
+    integrationId: string;
+  }): Promise<void> {
+    const integration = await this.integrations.getIntegrationById(
+      input.organizationId,
+      input.integrationId
+    );
+    if (!integration) throw new Error('Social channel was not found.');
+    await this.integrations.disconnectChannel(
+      input.organizationId,
+      integration
     );
   }
 

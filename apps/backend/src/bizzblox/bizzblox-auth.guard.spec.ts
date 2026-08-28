@@ -116,6 +116,12 @@ describe('BizzBLOX service authentication guard', () => {
       },
     ],
     [
+      'connection.disconnect',
+      'POST',
+      '/internal/bizzblox/v1/connections:disconnect',
+      { channelHandle: 'bbx_ch_exact_linkedin' },
+    ],
+    [
       'publication.validate',
       'POST',
       '/internal/bizzblox/v1/publications:validate',

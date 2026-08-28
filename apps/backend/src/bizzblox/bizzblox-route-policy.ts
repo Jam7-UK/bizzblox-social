@@ -28,6 +28,8 @@ const ROUTES = Object.freeze([
   ['GET', /^\/internal\/bizzblox\/v1\/providers$/],
   ['POST', /^\/internal\/bizzblox\/v1\/connections:begin$/],
   ['POST', /^\/internal\/bizzblox\/v1\/connections:select$/],
+  ['POST', /^\/internal\/bizzblox\/v1\/connections:disconnect$/],
+  ['POST', /^\/internal\/bizzblox\/v1\/connections:reconnect$/],
   ['GET', /^\/internal\/bizzblox\/v1\/channels$/],
   [
     'GET',

@@ -106,6 +106,18 @@ function operationFor(method: string, path: string): string | null {
   ) {
     return 'connection.select';
   }
+  if (
+    method === 'POST' &&
+    path === '/internal/bizzblox/v1/connections:disconnect'
+  ) {
+    return 'connection.disconnect';
+  }
+  if (
+    method === 'POST' &&
+    path === '/internal/bizzblox/v1/connections:reconnect'
+  ) {
+    return 'connection.reconnect';
+  }
   if (method === 'POST' && path === '/internal/bizzblox/v1/tenants:ensure') {
     return 'tenant.ensure';
   }

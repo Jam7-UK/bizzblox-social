@@ -65,6 +65,7 @@ function setup() {
         }))
     ),
     read: vi.fn().mockResolvedValue(stored),
+    markDisconnected: vi.fn(),
     updateContract: vi.fn(async (input) => ({
       ...stored,
       connectorRevision: input.connectorRevision,
