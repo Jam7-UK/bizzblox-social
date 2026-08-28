@@ -1,7 +1,11 @@
 export const DATABASE_RESTORE_VALIDATION_RESULT =
   'bizzblox-social-validation:v1;database-checksums=matched;migrations=passed';
+export const DATABASE_RESTORE_VALIDATION_RESULT_V2 =
+  'bizzblox-social-validation:v2;database-canary=verified;catalog=verified;migrations=passed';
 export const MEDIA_RESTORE_VALIDATION_RESULT =
   'bizzblox-social-validation:v1;media-checksums=matched';
+export const MEDIA_RESTORE_VALIDATION_RESULT_V2 =
+  'bizzblox-social-validation:v2;media-canary=verified;checksums=verified';
 
 const SHA256_HEX = /^[a-f0-9]{64}$/;
 
@@ -139,6 +143,34 @@ export function validateDatabaseRestore(evidence: unknown): string {
   return DATABASE_RESTORE_VALIDATION_RESULT;
 }
 
+/** Validates recovery-point-contained database evidence without live-state comparison. */
+export function validateDatabaseRestoreV2(evidence: unknown): string {
+  const candidate = record(evidence);
+  hasExactKeys(candidate, [
+    'canaryVerified',
+    'catalogDigest',
+    'connectionVerified',
+    'failedMigrationCount',
+    'kind',
+    'migrationDigest',
+    'rowCount',
+    'version',
+  ]);
+  if (
+    candidate.kind !== 'database' ||
+    candidate.version !== 2 ||
+    candidate.connectionVerified !== true ||
+    candidate.canaryVerified !== true ||
+    count(candidate.failedMigrationCount) !== 0 ||
+    count(candidate.rowCount) < 1
+  ) {
+    fail();
+  }
+  digest(candidate.catalogDigest);
+  digest(candidate.migrationDigest);
+  return DATABASE_RESTORE_VALIDATION_RESULT_V2;
+}
+
 /** Validates a fully checksum-verified restored media inventory. */
 export function validateMediaRestore(evidence: unknown): string {
   const candidate = record(evidence);
@@ -168,4 +200,27 @@ export function validateMediaRestore(evidence: unknown): string {
     fail();
   }
   return MEDIA_RESTORE_VALIDATION_RESULT;
+}
+
+/** Validates restored media using its durable canary and provider-held checksums. */
+export function validateMediaRestoreV2(evidence: unknown): string {
+  const candidate = record(evidence);
+  hasExactKeys(candidate, [
+    'canaryVerified',
+    'checksumFailureCount',
+    'kind',
+    'restored',
+    'version',
+  ]);
+  if (
+    candidate.kind !== 'media' ||
+    candidate.version !== 2 ||
+    candidate.canaryVerified !== true ||
+    count(candidate.checksumFailureCount) !== 0
+  ) {
+    fail();
+  }
+  const restored = restoredMediaSnapshot(candidate.restored);
+  if (restored.verifiedObjectCount !== restored.objectCount) fail();
+  return MEDIA_RESTORE_VALIDATION_RESULT_V2;
 }

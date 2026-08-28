@@ -9,6 +9,10 @@ import {
   buildMediaRestoreSnapshot,
   type MediaRestoreSnapshot,
 } from './bizzblox-restore-probe';
+import {
+  RESTORE_CANARY_MEDIA_KEY,
+  verifyMediaRestoreCanary,
+} from './bizzblox-restore-canary';
 
 const MEDIA_PREFIX = 'managed-media/';
 const MAX_OBJECTS = 100_000;
@@ -142,6 +146,27 @@ async function verifyObject(
   });
 }
 
+async function verifyCanary(
+  bucket: string,
+  client: RestoreMediaCommandClient
+): Promise<true> {
+  const response = record(
+    await client.send(
+      new GetObjectAttributesCommand({
+        Bucket: bucket,
+        Key: RESTORE_CANARY_MEDIA_KEY,
+        ObjectAttributes: ['Checksum', 'ObjectSize'],
+      })
+    )
+  );
+  const checksum = record(response.Checksum);
+  return verifyMediaRestoreCanary({
+    byteCount: response.ObjectSize,
+    checksumSha256: checksum.ChecksumSHA256,
+    key: RESTORE_CANARY_MEDIA_KEY,
+  });
+}
+
 /** Lists only the managed prefix and verifies provider-held checksum metadata. */
 export async function collectMediaRestoreSnapshot(
   restoredBucket: string,
@@ -150,6 +175,7 @@ export async function collectMediaRestoreSnapshot(
   try {
     const bucket = bucketName(restoredBucket);
     const listed = await listObjects(bucket, client);
+    const canaryVerified = await verifyCanary(bucket, client);
     const verified = [];
     for (
       let offset = 0;
@@ -164,7 +190,7 @@ export async function collectMediaRestoreSnapshot(
         ))
       );
     }
-    return buildMediaRestoreSnapshot(Object.freeze(verified));
+    return buildMediaRestoreSnapshot(Object.freeze(verified), canaryVerified);
   } catch {
     return fail();
   }

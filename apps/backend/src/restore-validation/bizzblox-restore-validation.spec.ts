@@ -2,16 +2,52 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DATABASE_RESTORE_VALIDATION_RESULT,
+  DATABASE_RESTORE_VALIDATION_RESULT_V2,
   MEDIA_RESTORE_VALIDATION_RESULT,
+  MEDIA_RESTORE_VALIDATION_RESULT_V2,
   RestoreValidationError,
   validateDatabaseRestore,
+  validateDatabaseRestoreV2,
   validateMediaRestore,
+  validateMediaRestoreV2,
 } from './bizzblox-restore-validation';
 
 const DIGEST_A = 'a'.repeat(64);
 const DIGEST_B = 'b'.repeat(64);
 
 describe('BizzBLOX restore validation', () => {
+  it('accepts v2 database evidence only with the durable canary and logical catalog proof', () => {
+    expect(
+      validateDatabaseRestoreV2({
+        canaryVerified: true,
+        catalogDigest: DIGEST_A,
+        connectionVerified: true,
+        failedMigrationCount: 0,
+        kind: 'database',
+        migrationDigest: DIGEST_B,
+        rowCount: 42,
+        version: 2,
+      })
+    ).toBe(DATABASE_RESTORE_VALIDATION_RESULT_V2);
+  });
+
+  it('accepts v2 media evidence only with the durable canary and complete checksum proof', () => {
+    expect(
+      validateMediaRestoreV2({
+        canaryVerified: true,
+        checksumFailureCount: 0,
+        kind: 'media',
+        restored: {
+          byteCount: 2048,
+          inventoryDigest: DIGEST_A,
+          objectCount: 2,
+          verifiedObjectCount: 2,
+        },
+        version: 2,
+      })
+    ).toBe(MEDIA_RESTORE_VALIDATION_RESULT_V2);
+  });
+
   it('accepts only an exact, connected database restore with complete migrations', () => {
     expect(
       validateDatabaseRestore({

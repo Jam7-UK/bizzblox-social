@@ -25,12 +25,14 @@ type DatabaseTable = Readonly<{
 }>;
 
 export type DatabaseRestoreProbe = Readonly<{
+  canaryVerified: boolean;
   connectionVerified: boolean;
   migrations: readonly DatabaseMigration[];
   tables: readonly DatabaseTable[];
 }>;
 
 export type DatabaseRestoreSnapshot = Readonly<{
+  canaryVerified: true;
   connectionVerified: true;
   dataDigest: string;
   failedMigrationCount: number;
@@ -46,6 +48,7 @@ type MediaObjectProbe = Readonly<{
 
 export type MediaRestoreSnapshot = Readonly<{
   byteCount: number;
+  canaryVerified: true;
   inventoryDigest: string;
   objectCount: number;
   verifiedObjectCount: number;
@@ -127,7 +130,11 @@ function normalizedColumns(
 export function buildDatabaseRestoreSnapshot(
   probe: DatabaseRestoreProbe
 ): DatabaseRestoreSnapshot {
-  if (probe?.connectionVerified !== true || !Array.isArray(probe.tables)) {
+  if (
+    probe?.canaryVerified !== true ||
+    probe?.connectionVerified !== true ||
+    !Array.isArray(probe.tables)
+  ) {
     return fail();
   }
   const tables = new Map<
@@ -188,6 +195,7 @@ export function buildDatabaseRestoreSnapshot(
     ]);
 
   return Object.freeze({
+    canaryVerified: true,
     connectionVerified: true,
     dataDigest: hash(tableEvidence),
     failedMigrationCount,
@@ -216,9 +224,10 @@ function normalizedChecksum(value: unknown): string {
 
 /** Builds a private media inventory digest from key, size, and stored SHA-256. */
 export function buildMediaRestoreSnapshot(
-  objects: readonly MediaObjectProbe[]
+  objects: readonly MediaObjectProbe[],
+  canaryVerified: boolean
 ): MediaRestoreSnapshot {
-  if (!Array.isArray(objects)) return fail();
+  if (!Array.isArray(objects) || canaryVerified !== true) return fail();
   const seen = new Set<string>();
   let byteCount = 0;
   const inventory = objects
@@ -241,6 +250,7 @@ export function buildMediaRestoreSnapshot(
     .sort();
   return Object.freeze({
     byteCount,
+    canaryVerified: true,
     inventoryDigest: hash(inventory),
     objectCount: inventory.length,
     verifiedObjectCount: inventory.length,

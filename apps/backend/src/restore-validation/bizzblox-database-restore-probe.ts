@@ -6,6 +6,10 @@ import {
   buildDatabaseRestoreSnapshot,
   type DatabaseRestoreSnapshot,
 } from './bizzblox-restore-probe';
+import {
+  RESTORE_CANARY_DATABASE_ID,
+  verifyDatabaseRestoreCanary,
+} from './bizzblox-restore-canary';
 
 export type RestoreDatabaseKind = 'application' | 'temporal';
 
@@ -168,6 +172,23 @@ async function temporalMigrations(
   );
 }
 
+async function databaseCanary(
+  client: RestoreDatabaseQueryClient
+): Promise<true> {
+  const rows = await client.query(`
+    SELECT "id", "checksum"
+    FROM "public"."bizzblox_restore_canary"
+    WHERE "id" = '${RESTORE_CANARY_DATABASE_ID}'
+    LIMIT 2
+  `);
+  if (rows.length !== 1) return fail();
+  const row = record(rows[0]);
+  return verifyDatabaseRestoreCanary({
+    checksum: row.checksum,
+    id: row.id,
+  });
+}
+
 async function collect(
   kind: RestoreDatabaseKind,
   client: RestoreDatabaseQueryClient
@@ -234,7 +255,9 @@ async function collect(
     kind === 'application'
       ? await applicationMigrations(client)
       : await temporalMigrations(client);
+  const canaryVerified = await databaseCanary(client);
   return buildDatabaseRestoreSnapshot({
+    canaryVerified,
     connectionVerified: true,
     migrations,
     tables: Object.freeze(tables),

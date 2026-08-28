@@ -10,6 +10,7 @@ const CHECKSUM_A = Buffer.alloc(32, 1).toString('base64');
 const CHECKSUM_B = Buffer.alloc(32, 2).toString('base64');
 
 const databaseProbe = Object.freeze({
+  canaryVerified: true,
   connectionVerified: true,
   migrations: Object.freeze([
     Object.freeze({
@@ -74,6 +75,7 @@ describe('BizzBLOX restore probes', () => {
 
     expect(first).toEqual(reordered);
     expect(first).toMatchObject({
+      canaryVerified: true,
       connectionVerified: true,
       failedMigrationCount: 0,
       rowCount: 3,
@@ -118,12 +120,13 @@ describe('BizzBLOX restore probes', () => {
         key: 'managed-media/b.mp4',
       },
     ];
-    const first = buildMediaRestoreSnapshot(objects);
-    const reordered = buildMediaRestoreSnapshot([...objects].reverse());
+    const first = buildMediaRestoreSnapshot(objects, true);
+    const reordered = buildMediaRestoreSnapshot([...objects].reverse(), true);
 
     expect(first).toEqual(reordered);
     expect(first).toEqual({
       byteCount: 384,
+      canaryVerified: true,
       inventoryDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
       objectCount: 2,
       verifiedObjectCount: 2,
@@ -151,32 +154,37 @@ describe('BizzBLOX restore probes', () => {
     [
       'foreign media prefix',
       () =>
-        buildMediaRestoreSnapshot([
-          { byteCount: 1, checksumSha256: CHECKSUM_A, key: 'other/a.png' },
-        ]),
+        buildMediaRestoreSnapshot(
+          [{ byteCount: 1, checksumSha256: CHECKSUM_A, key: 'other/a.png' }],
+          true
+        ),
     ],
     [
       'missing checksum',
       () =>
-        buildMediaRestoreSnapshot([
-          { byteCount: 1, checksumSha256: '', key: 'managed-media/a.png' },
-        ]),
+        buildMediaRestoreSnapshot(
+          [{ byteCount: 1, checksumSha256: '', key: 'managed-media/a.png' }],
+          true
+        ),
     ],
     [
       'duplicate media key',
       () =>
-        buildMediaRestoreSnapshot([
-          {
-            byteCount: 1,
-            checksumSha256: CHECKSUM_A,
-            key: 'managed-media/a.png',
-          },
-          {
-            byteCount: 1,
-            checksumSha256: CHECKSUM_A,
-            key: 'managed-media/a.png',
-          },
-        ]),
+        buildMediaRestoreSnapshot(
+          [
+            {
+              byteCount: 1,
+              checksumSha256: CHECKSUM_A,
+              key: 'managed-media/a.png',
+            },
+            {
+              byteCount: 1,
+              checksumSha256: CHECKSUM_A,
+              key: 'managed-media/a.png',
+            },
+          ],
+          true
+        ),
     ],
   ])('rejects a %s with one generic error', (_label, operation) => {
     expect(operation).toThrow(RestoreProbeError);

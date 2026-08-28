@@ -16,12 +16,18 @@ import type {
 import {
   RestoreValidationError,
   validateDatabaseRestore,
+  validateDatabaseRestoreV2,
   validateMediaRestore,
+  validateMediaRestoreV2,
 } from './bizzblox-restore-validation';
 
 const MAX_MANIFEST_BYTES = 4 * 1024;
 
 type RestoreProbeKind = RestoreDatabaseKind | 'media';
+type RestoreProbeInvocation = Readonly<{
+  contract: 'v1' | 'v2';
+  kind: RestoreProbeKind;
+}>;
 
 type RestoreProbeDependencies = Readonly<{
   database: (kind: RestoreDatabaseKind) => Promise<DatabaseRestoreSnapshot>;
@@ -32,15 +38,21 @@ function fail(): never {
   throw new RestoreValidationError();
 }
 
-function kind(args: readonly string[]): RestoreProbeKind {
+function invocation(args: readonly string[]): RestoreProbeInvocation {
   if (
-    args.length !== 2 ||
     args[0] !== '--kind' ||
-    !['application', 'temporal', 'media'].includes(args[1] ?? '')
+    !['application', 'temporal', 'media'].includes(args[1] ?? '') ||
+    !(
+      args.length === 2 ||
+      (args.length === 4 && args[2] === '--contract' && args[3] === 'v2')
+    )
   ) {
     return fail();
   }
-  return args[1] as RestoreProbeKind;
+  return Object.freeze({
+    contract: args.length === 4 ? 'v2' : 'v1',
+    kind: args[1] as RestoreProbeKind,
+  });
 }
 
 async function manifest(input: Readable): Promise<unknown> {
@@ -80,22 +92,51 @@ export async function runRestoreProbeCli(
   dependencies: RestoreProbeDependencies = productionDependencies()
 ): Promise<string> {
   try {
-    const resourceKind = kind(args);
-    const expected = await manifest(input);
+    const request = invocation(args);
+    const expected =
+      request.contract === 'v1' ? await manifest(input) : undefined;
+    const resourceKind = request.kind;
     if (resourceKind === 'media') {
       const bucket = environment.SOCIAL_RESTORED_MEDIA_BUCKET?.trim();
       if (!bucket) return fail();
       const restored = await dependencies.media(bucket);
+      const restoredEvidence = {
+        byteCount: restored.byteCount,
+        inventoryDigest: restored.inventoryDigest,
+        objectCount: restored.objectCount,
+        verifiedObjectCount: restored.verifiedObjectCount,
+      };
+      if (request.contract === 'v2') {
+        return validateMediaRestoreV2({
+          canaryVerified: restored.canaryVerified,
+          checksumFailureCount: 0,
+          kind: 'media',
+          restored: restoredEvidence,
+          version: 2,
+        });
+      }
       return validateMediaRestore({
         checksumFailureCount: 0,
         expected,
         kind: 'media',
-        restored,
+        restored: restoredEvidence,
         version: 1,
       });
     }
 
     const restored = await dependencies.database(resourceKind);
+    if (request.contract === 'v2') {
+      return validateDatabaseRestoreV2({
+        canaryVerified: restored.canaryVerified,
+        catalogDigest: restored.dataDigest,
+        connectionVerified: restored.connectionVerified,
+        failedMigrationCount: restored.failedMigrationCount,
+        kind: 'database',
+        migrationDigest: restored.migrationDigest,
+        rowCount: restored.rowCount,
+        version: 2,
+      });
+    }
     return validateDatabaseRestore({
       connectionVerified: restored.connectionVerified,
       expected,

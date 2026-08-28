@@ -26,6 +26,16 @@ describe('BizzBLOX media restore probe adapter', () => {
             };
       }
       if (command instanceof GetObjectAttributesCommand) {
+        if (
+          command.input.Key === 'bizzblox-validation/restore-canary-v1.json'
+        ) {
+          return {
+            Checksum: {
+              ChecksumSHA256: 'JUyo3yk86+jCrCciO1au7UZ6FJLTgbaKXKgOkXOGYU8=',
+            },
+            ObjectSize: 57,
+          };
+        }
         return command.input.Key?.endsWith('a.png')
           ? { Checksum: { ChecksumSHA256: CHECKSUM_A }, ObjectSize: 128 }
           : { Checksum: { ChecksumSHA256: CHECKSUM_B }, ObjectSize: 256 };
@@ -42,6 +52,7 @@ describe('BizzBLOX media restore probe adapter', () => {
 
     expect(result).toEqual({
       byteCount: 384,
+      canaryVerified: true,
       inventoryDigest: expect.stringMatching(/^[a-f0-9]{64}$/),
       objectCount: 2,
       verifiedObjectCount: 2,
@@ -59,17 +70,35 @@ describe('BizzBLOX media restore probe adapter', () => {
     const attributeCommands = send.mock.calls
       .map(([command]) => command)
       .filter((command) => command instanceof GetObjectAttributesCommand);
-    expect(attributeCommands).toHaveLength(2);
-    expect(attributeCommands[0]?.input).toMatchObject({
+    expect(attributeCommands).toHaveLength(3);
+    expect(attributeCommands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          input: expect.objectContaining({
+            Bucket: 'bizzblox-social-restored-media',
+            Key: 'bizzblox-validation/restore-canary-v1.json',
+            ObjectAttributes: ['Checksum', 'ObjectSize'],
+          }),
+        }),
+      ])
+    );
+    expect(attributeCommands[1]?.input).toMatchObject({
       Bucket: 'bizzblox-social-restored-media',
       ObjectAttributes: ['Checksum', 'ObjectSize'],
     });
   });
 
   it('accepts an empty restored media prefix as a complete inventory', async () => {
-    const send = vi
-      .fn()
-      .mockResolvedValue({ Contents: [], IsTruncated: false });
+    const send = vi.fn(async (command: unknown) =>
+      command instanceof ListObjectsV2Command
+        ? { Contents: [], IsTruncated: false }
+        : {
+            Checksum: {
+              ChecksumSHA256: 'JUyo3yk86+jCrCciO1au7UZ6FJLTgbaKXKgOkXOGYU8=',
+            },
+            ObjectSize: 57,
+          }
+    );
     await expect(
       collectMediaRestoreSnapshot('bizzblox-social-restored-media', { send })
     ).resolves.toMatchObject({

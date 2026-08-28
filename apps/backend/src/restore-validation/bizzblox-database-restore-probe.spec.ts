@@ -34,6 +34,15 @@ function queryClient(options?: Readonly<{ failCount?: boolean }>) {
       if (options?.failCount) throw new Error('sensitive database endpoint');
       return [{ rowCount: '2' }];
     }
+    if (statement.includes('"bizzblox_restore_canary"')) {
+      return [
+        {
+          checksum:
+            '254ca8df293cebe8c2ac27223b56aeed467a1492d381b68a5ca80e917386614f',
+          id: 'bizzblox-social-restore-canary-v1',
+        },
+      ];
+    }
     if (statement.includes('"_prisma_migrations"')) {
       return [
         {
@@ -67,6 +76,7 @@ describe('BizzBLOX database restore probe adapter', () => {
     const result = await collectDatabaseRestoreSnapshot('application', client);
 
     expect(result).toMatchObject({
+      canaryVerified: true,
       connectionVerified: true,
       failedMigrationCount: 0,
       rowCount: 2,
@@ -79,9 +89,45 @@ describe('BizzBLOX database restore probe adapter', () => {
       expect.arrayContaining([
         expect.stringContaining('"information_schema"."columns"'),
         expect.stringContaining('COUNT(*)'),
+        expect.stringContaining('"bizzblox_restore_canary"'),
         expect.stringContaining('"_prisma_migrations"'),
       ])
     );
+  });
+
+  it('rejects a restored database with a missing durable canary', async () => {
+    const { client } = queryClient();
+    client.query.mockImplementation(async (statement: string) => {
+      if (statement.includes('"bizzblox_restore_canary"')) return [];
+      if (statement.includes('"information_schema"."columns"')) {
+        return [
+          {
+            name: 'id',
+            nullable: false,
+            ordinal: 1,
+            schemaName: 'public',
+            tableName: 'Organization',
+            type: 'text',
+          },
+        ];
+      }
+      if (statement.includes('COUNT(*)')) return [{ rowCount: '2' }];
+      if (statement.includes('"_prisma_migrations"')) {
+        return [
+          {
+            checksum: 'a'.repeat(64),
+            finished: true,
+            name: '202608280001_initial',
+            rolledBack: false,
+          },
+        ];
+      }
+      throw new Error('unexpected query');
+    });
+
+    await expect(
+      collectDatabaseRestoreSnapshot('application', client)
+    ).rejects.toBeInstanceOf(RestoreProbeError);
   });
 
   it('derives Temporal migration evidence from its schema-version record', async () => {
