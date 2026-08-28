@@ -1,0 +1,139 @@
+name: BizzBLOX production images
+run-name: Production images · ${{ inputs.source_revision }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_revision:
+        description: Exact reviewed 40-character source revision from main
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: bizzblox-social-production-images
+  cancel-in-progress: false
+
+jobs:
+  images:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    environment: production
+    env:
+      AWS_REGION: eu-west-2
+      SOCIAL_PROD_AWS_ACCOUNT: ${{ vars.SOCIAL_PROD_AWS_ACCOUNT }}
+      SOURCE_REVISION: ${{ inputs.source_revision }}
+      API_REPOSITORY: bizzblox-social-api
+      WORKER_REPOSITORY: bizzblox-social-worker
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.source_revision }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.22.1
+          cache: pnpm
+      - name: Verify exact public corresponding source
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "${SOURCE_REVISION}" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "${SOURCE_REVISION}"
+          test "$(git branch --show-current)" = ""
+          corepack enable
+          pnpm install --frozen-lockfile
+          pnpm source:check
+          pnpm test
+          pnpm build:backend
+          pnpm build:orchestrator
+          pnpm runtime:check
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a
+        with:
+          role-to-assume: ${{ vars.SOCIAL_PROD_IMAGE_PUBLISH_ROLE_ARN }}
+          role-session-name: bizzblox-social-images
+          aws-region: eu-west-2
+      - name: Prove publisher identity and log in to exact ECR registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          observed="$(aws sts get-caller-identity --query Account --output text)"
+          test "${observed}" = "${SOCIAL_PROD_AWS_ACCOUNT}"
+          registry="${SOCIAL_PROD_AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          aws ecr get-login-password --region "${AWS_REGION}" |
+            docker login --username AWS --password-stdin "${registry}"
+      - name: Build and publish immutable API image
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="${SOCIAL_PROD_AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/${API_REPOSITORY}:${SOURCE_REVISION}"
+          docker buildx build \
+            --platform linux/arm64 \
+            --file Dockerfile.production \
+            --target api \
+            --build-arg "SOURCE_REVISION=${SOURCE_REVISION}" \
+            --tag "${image}" \
+            --provenance=mode=max \
+            --sbom=true \
+            --push \
+            .
+      - name: Build and publish immutable worker image
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="${SOCIAL_PROD_AWS_ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com/${WORKER_REPOSITORY}:${SOURCE_REVISION}"
+          docker buildx build \
+            --platform linux/arm64 \
+            --file Dockerfile.production \
+            --target orchestrator \
+            --build-arg "SOURCE_REVISION=${SOURCE_REVISION}" \
+            --tag "${image}" \
+            --provenance=mode=max \
+            --sbom=true \
+            --push \
+            .
+      - name: Capture value-free immutable image evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          api_digest="$(aws ecr batch-get-image \
+            --repository-name "${API_REPOSITORY}" \
+            --image-ids "imageTag=${SOURCE_REVISION}" \
+            --query 'images[0].imageId.imageDigest' \
+            --output text)"
+          worker_digest="$(aws ecr batch-get-image \
+            --repository-name "${WORKER_REPOSITORY}" \
+            --image-ids "imageTag=${SOURCE_REVISION}" \
+            --query 'images[0].imageId.imageDigest' \
+            --output text)"
+          [[ "${api_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "${worker_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          IMAGE_EVIDENCE_PATH="${RUNNER_TEMP}/social-production-images.json" \
+          API_DIGEST="${api_digest}" \
+          WORKER_DIGEST="${worker_digest}" \
+          SOURCE_RUN_ID="${GITHUB_RUN_ID}" \
+            node --input-type=module -e '
+              import { writeFileSync } from "node:fs";
+              const evidence = {
+                sourceRepository: "Jam7-UK/bizzblox-social",
+                sourceRevision: process.env.SOURCE_REVISION,
+                sourceRunId: process.env.SOURCE_RUN_ID,
+                apiImageDigest: process.env.API_DIGEST,
+                workerImageDigest: process.env.WORKER_DIGEST,
+              };
+              writeFileSync(process.env.IMAGE_EVIDENCE_PATH, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
+            '
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: production-image-evidence
+          path: ${{ runner.temp }}/social-production-images.json
+          if-no-files-found: error
+          retention-days: 90

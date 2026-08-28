@@ -14,6 +14,7 @@ const required = [
   'Dockerfile.production',
   '.github/workflows/ci.yml',
   '.github/workflows/corresponding-source.yml',
+  '.github/workflows/production-images.yml',
 ];
 
 function read(file) {
