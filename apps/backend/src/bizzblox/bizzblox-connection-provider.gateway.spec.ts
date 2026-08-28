@@ -4,16 +4,17 @@ import { PostizBizzbloxConnectionProviderGateway } from './bizzblox-connection-p
 
 describe('Postiz BizzBLOX connection provider gateway', () => {
   it('removes only the exact organization integration and proves it is gone', async () => {
-    const integration = {
+    let integration = {
       id: 'integration-linkedin-1',
       organizationId: 'postiz-org-1',
+      deletedAt: null as Date | null,
     };
     const integrations = {
-      deleteChannel: vi.fn().mockResolvedValue(undefined),
-      getIntegrationById: vi
-        .fn()
-        .mockResolvedValueOnce(integration)
-        .mockResolvedValueOnce(null),
+      deleteChannel: vi.fn(async () => {
+        integration = { ...integration, deletedAt: new Date() };
+      }),
+      getIntegrationById: vi.fn(async () => integration),
+      hasLivePostsForChannel: vi.fn().mockResolvedValue(false),
     };
     const gateway = new PostizBizzbloxConnectionProviderGateway(
       {} as never,
@@ -37,6 +38,36 @@ describe('Postiz BizzBLOX connection provider gateway', () => {
       'postiz-org-1',
       'integration-linkedin-1'
     );
+    expect(integrations.hasLivePostsForChannel).toHaveBeenCalledWith(
+      'postiz-org-1',
+      'integration-linkedin-1'
+    );
+  });
+
+  it('refuses destructive removal while Postiz retains live posts', async () => {
+    const integrations = {
+      getIntegrationById: vi.fn().mockResolvedValue({
+        id: 'integration-linkedin-1',
+        organizationId: 'postiz-org-1',
+        deletedAt: null,
+      }),
+      hasLivePostsForChannel: vi.fn().mockResolvedValue(true),
+      deleteChannel: vi.fn(),
+    };
+    const gateway = new PostizBizzbloxConnectionProviderGateway(
+      {} as never,
+      integrations as never,
+      {} as never
+    );
+
+    await expect(
+      gateway.disconnectAccount({
+        organizationId: 'postiz-org-1',
+        connectorRevision: 7,
+        integrationId: 'integration-linkedin-1',
+      })
+    ).resolves.toEqual({ outcome: 'reconcile_required' });
+    expect(integrations.deleteChannel).not.toHaveBeenCalled();
   });
 
   it('projects the live configured provider catalogue without provider secrets or implementation fields', async () => {

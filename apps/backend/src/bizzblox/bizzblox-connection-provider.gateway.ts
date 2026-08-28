@@ -384,14 +384,25 @@ export class PostizBizzbloxConnectionProviderGateway
       input.integrationId
     );
     if (!integration) throw new Error('Social channel was not found.');
+    if (integration.deletedAt) {
+      return Object.freeze({ outcome: 'reconcile_required' as const });
+    }
+    if (
+      await this.integrations.hasLivePostsForChannel(
+        input.organizationId,
+        integration.id
+      )
+    ) {
+      return Object.freeze({ outcome: 'reconcile_required' as const });
+    }
     await this.integrations.deleteChannel(input.organizationId, integration.id);
     const readback = await this.integrations.getIntegrationById(
       input.organizationId,
       input.integrationId
     );
-    return readback
-      ? Object.freeze({ outcome: 'reconcile_required' as const })
-      : Object.freeze({ outcome: 'removed' as const });
+    return readback?.deletedAt
+      ? Object.freeze({ outcome: 'removed' as const })
+      : Object.freeze({ outcome: 'reconcile_required' as const });
   }
 
   private async reconnectAuthenticatedIntegration(

@@ -171,6 +171,14 @@ export class IntegrationService {
     return this._integrationRepository.getIntegrationById(org, id);
   }
 
+  /** A channel with retained posts cannot be removed without orphaning Postiz work. */
+  async hasLivePostsForChannel(org: string, integrationId: string) {
+    return (
+      (await this._integrationRepository.getPostsForChannel(org, integrationId))
+        .length > 0
+    );
+  }
+
   async getIntegrationForProviderExecution(org: string, id: string) {
     const integration = await this._integrationRepository.getIntegrationById(
       org,
