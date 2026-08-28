@@ -62,7 +62,11 @@ describe('BizzBLOX managed social consent', () => {
         userBinding: 'user_binding_exact_abcdefghijklmnopqrstuvwxyz',
         fields: { token: 'replacement-token' },
       })
-    ).resolves.toEqual({ mode: 'connected', provider: 'linkedin' });
+    ).resolves.toEqual({
+      mode: 'connected',
+      channelHandle: 'bbx_ch_exact_linkedin',
+      connectorRevision: 7,
+    });
     expect(providers.completeCustomFields).toHaveBeenCalledWith({
       organizationId: 'postiz-org-1',
       connectorRevision: 7,
@@ -549,11 +553,20 @@ describe('BizzBLOX managed social consent', () => {
       saveSelection: vi.fn(),
       consumeSelection: vi.fn(),
     };
-    const service = new BizzbloxConnectionsService(providers, states, {
-      ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
-      clock: () => new Date('2026-08-27T22:03:00.000Z'),
-      publicOrigin: 'https://social.bizzblox.com',
-    });
+    const service = new BizzbloxConnectionsService(
+      providers,
+      states,
+      {
+        ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
+        clock: () => new Date('2026-08-27T22:03:00.000Z'),
+        publicOrigin: 'https://social.bizzblox.com',
+      },
+      undefined,
+      {
+        channel: vi.fn().mockReturnValue('bbx_ch_exact_bluesky'),
+        helper: vi.fn(),
+      }
+    );
 
     await expect(
       service.begin('postiz-org-1', 7, { provider: 'bluesky' })
@@ -577,7 +590,8 @@ describe('BizzBLOX managed social consent', () => {
     });
     expect(connected).toEqual({
       mode: 'connected',
-      provider: 'bluesky',
+      channelHandle: 'bbx_ch_exact_bluesky',
+      connectorRevision: 7,
     });
     expect(JSON.stringify(connected)).not.toContain('app-password-secret');
     expect(JSON.stringify(connected)).not.toContain('integration-bluesky-1');
@@ -605,11 +619,20 @@ describe('BizzBLOX managed social consent', () => {
       saveSelection: vi.fn(),
       consumeSelection: vi.fn(),
     };
-    const service = new BizzbloxConnectionsService(providers, states, {
-      ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
-      clock: () => new Date('2026-08-27T22:03:00.000Z'),
-      publicOrigin: 'https://social.bizzblox.com',
-    });
+    const service = new BizzbloxConnectionsService(
+      providers,
+      states,
+      {
+        ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
+        clock: () => new Date('2026-08-27T22:03:00.000Z'),
+        publicOrigin: 'https://social.bizzblox.com',
+      },
+      undefined,
+      {
+        channel: vi.fn().mockReturnValue('bbx_ch_exact_telegram'),
+        helper: vi.fn(),
+      }
+    );
 
     await expect(
       service.begin('postiz-org-1', 7, { provider: 'telegram' })
@@ -628,7 +651,11 @@ describe('BizzBLOX managed social consent', () => {
       provider: 'telegram',
       code: '-1001234567890',
     });
-    expect(connected).toEqual({ mode: 'connected', provider: 'telegram' });
+    expect(connected).toEqual({
+      mode: 'connected',
+      channelHandle: 'bbx_ch_exact_telegram',
+      connectorRevision: 7,
+    });
     expect(JSON.stringify(connected)).not.toContain('-1001234567890');
     expect(JSON.stringify(connected)).not.toContain('integration-telegram-1');
   });

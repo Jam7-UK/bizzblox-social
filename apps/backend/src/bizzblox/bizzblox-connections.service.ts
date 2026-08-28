@@ -396,7 +396,11 @@ export class BizzbloxConnectionsService {
           'This provider requires account selection.'
         );
       }
-      return Object.freeze({ mode: 'connected' as const, provider });
+      return Object.freeze({
+        mode: 'connected' as const,
+        channelHandle,
+        connectorRevision,
+      });
     }
     if (description.mode === 'manual') {
       if (input.fields) {
@@ -425,7 +429,11 @@ export class BizzbloxConnectionsService {
           'This provider requires account selection.'
         );
       }
-      return Object.freeze({ mode: 'connected' as const, provider });
+      return Object.freeze({
+        mode: 'connected' as const,
+        channelHandle,
+        connectorRevision,
+      });
     }
     if (input.fields || input.manualCode !== undefined) {
       throw new BizzbloxConnectionInputError(
@@ -475,6 +483,9 @@ export class BizzbloxConnectionsService {
     const description = await this.providers.describe(provider);
     if (description.mode === 'form') {
       if (!input.fields) return description;
+      if (!this.refs) {
+        throw new Error('Social channel references are unavailable.');
+      }
       const connection = await this.providers.completeCustomFields({
         organizationId,
         connectorRevision,
@@ -486,7 +497,14 @@ export class BizzbloxConnectionsService {
           'This provider requires account selection.'
         );
       }
-      return Object.freeze({ mode: 'connected' as const, provider });
+      return Object.freeze({
+        mode: 'connected' as const,
+        channelHandle: this.refs.channel(
+          organizationId,
+          connection.integrationId
+        ),
+        connectorRevision,
+      });
     }
     if (description.mode === 'manual') {
       if (input.fields) {
@@ -501,6 +519,9 @@ export class BizzbloxConnectionsService {
           'This provider connection is unavailable.'
         );
       }
+      if (!this.refs) {
+        throw new Error('Social channel references are unavailable.');
+      }
       const connection = await this.providers.completeManual({
         organizationId,
         connectorRevision,
@@ -512,7 +533,14 @@ export class BizzbloxConnectionsService {
           'This provider requires account selection.'
         );
       }
-      return Object.freeze({ mode: 'connected' as const, provider });
+      return Object.freeze({
+        mode: 'connected' as const,
+        channelHandle: this.refs.channel(
+          organizationId,
+          connection.integrationId
+        ),
+        connectorRevision,
+      });
     }
     if (input.fields || input.manualCode !== undefined) {
       throw new BizzbloxConnectionInputError(
