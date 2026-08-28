@@ -94,6 +94,9 @@ function sha256(value: string): string {
 }
 
 function operationFor(method: string, path: string): string | null {
+  if (method === 'GET' && path === '/internal/bizzblox/v1/providers') {
+    return 'provider.list';
+  }
   if (method === 'POST' && path === '/internal/bizzblox/v1/connections:begin') {
     return 'connection.begin';
   }

@@ -14,6 +14,7 @@ import type {
   BizzbloxConnectionField,
   BizzbloxConnectionProviderDescription,
   BizzbloxConnectionProviderGateway,
+  BizzbloxConnectionProviderSummary,
   BizzbloxProviderConnectionOutcome,
   BizzbloxProviderSelectionOption,
 } from './bizzblox-connections.service';
@@ -144,6 +145,46 @@ export class PostizBizzbloxConnectionProviderGateway
     @Inject(BIZZBLOX_CUSTOM_FIELD_SEALER)
     private readonly fieldSealer?: BizzbloxCustomFieldSealer
   ) {}
+
+  async listProviders(): Promise<readonly BizzbloxConnectionProviderSummary[]> {
+    const catalogue = await this.manager.getAllIntegrations();
+    if (!Array.isArray(catalogue.social) || catalogue.social.length > 100) {
+      throw new Error('Social provider catalogue is invalid.');
+    }
+    const seen = new Set<string>();
+    const providers = catalogue.social.map((item) => {
+      if (!isRecord(item))
+        throw new Error('Social provider catalogue is invalid.');
+      const providerKey = boundedText(item.identifier, 100);
+      const label = boundedText(item.name, 200);
+      if (
+        !providerKey ||
+        !/^[a-z0-9][a-z0-9-]{0,99}$/.test(providerKey) ||
+        !label ||
+        seen.has(providerKey)
+      ) {
+        throw new Error('Social provider catalogue is invalid.');
+      }
+      seen.add(providerKey);
+      return Object.freeze({
+        providerKey,
+        label,
+        connectionMode:
+          item.customFields !== undefined
+            ? ('form' as const)
+            : item.isWeb3 === true
+            ? ('manual' as const)
+            : ('oauth' as const),
+      });
+    });
+    return Object.freeze(
+      providers.sort(
+        (left, right) =>
+          left.label.localeCompare(right.label) ||
+          left.providerKey.localeCompare(right.providerKey)
+      )
+    );
+  }
 
   private provider(identifier: string): SelectableProvider {
     if (

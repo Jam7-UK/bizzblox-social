@@ -11,6 +11,15 @@ describe('BizzBLOX internal connection controller', () => {
       executeHelper: vi.fn(),
     };
     const connections = {
+      listProviders: vi
+        .fn()
+        .mockResolvedValue([
+          {
+            providerKey: 'linkedin',
+            label: 'LinkedIn',
+            connectionMode: 'oauth',
+          },
+        ]),
       begin: vi.fn().mockResolvedValue({
         mode: 'redirect',
         authorizationUrl: 'https://linkedin.com/oauth',
@@ -30,6 +39,13 @@ describe('BizzBLOX internal connection controller', () => {
         tenantHandle: 'tenant_opaque_123',
       },
     } as BizzbloxVerifiedRequest;
+    const providerRequest = {
+      ...beginRequest,
+      bizzbloxAuth: {
+        ...beginRequest.bizzbloxAuth!,
+        operation: 'provider.list',
+      },
+    } as BizzbloxVerifiedRequest;
     const selectRequest = {
       ...beginRequest,
       bizzbloxAuth: {
@@ -38,6 +54,9 @@ describe('BizzBLOX internal connection controller', () => {
       },
     } as BizzbloxVerifiedRequest;
 
+    await expect(controller.providers(providerRequest)).resolves.toEqual([
+      { providerKey: 'linkedin', label: 'LinkedIn', connectionMode: 'oauth' },
+    ]);
     await controller.begin(beginRequest, { provider: 'linkedin' });
     await controller.select(selectRequest, {
       attemptHandle: 'selection-attempt-1',
@@ -47,6 +66,7 @@ describe('BizzBLOX internal connection controller', () => {
     expect(connections.begin).toHaveBeenCalledWith('postiz-org-1', 7, {
       provider: 'linkedin',
     });
+    expect(connections.listProviders).toHaveBeenCalledOnce();
     expect(connections.select).toHaveBeenCalledWith('postiz-org-1', 7, {
       attemptHandle: 'selection-attempt-1',
       optionRef: 'selection-option-1',

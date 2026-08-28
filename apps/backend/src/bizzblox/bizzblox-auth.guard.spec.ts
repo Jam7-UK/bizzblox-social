@@ -92,6 +92,7 @@ describe('BizzBLOX service authentication guard', () => {
   });
 
   it.each([
+    ['provider.list', 'GET', '/internal/bizzblox/v1/providers', undefined],
     [
       'connection.begin',
       'POST',

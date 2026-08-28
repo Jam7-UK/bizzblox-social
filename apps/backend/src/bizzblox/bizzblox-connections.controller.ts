@@ -62,6 +62,12 @@ export class BizzbloxConnectionsController {
     }
   }
 
+  @Get('/providers')
+  async providers(@Req() request: BizzbloxVerifiedRequest) {
+    this.authority(request, 'provider.list');
+    return await this.safe(async () => this.connections.listProviders());
+  }
+
   @Post('/connections:begin')
   async begin(
     @Req() request: BizzbloxVerifiedRequest,

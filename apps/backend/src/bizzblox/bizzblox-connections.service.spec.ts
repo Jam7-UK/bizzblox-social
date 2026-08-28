@@ -9,6 +9,7 @@ import {
 describe('BizzBLOX managed social consent', () => {
   it('begins provider consent with a fixed branded callback and stores exact-tenant state', async () => {
     const providers: BizzbloxConnectionProviderGateway = {
+      listProviders: vi.fn(),
       beginAuthorization: vi.fn().mockResolvedValue({
         authorizationUrl: 'https://www.linkedin.com/oauth/v2/authorization',
         providerState: 'provider-state-1',
@@ -67,6 +68,7 @@ describe('BizzBLOX managed social consent', () => {
       expiresAt: Date.parse('2026-08-27T22:10:00.000Z'),
     };
     const providers: BizzbloxConnectionProviderGateway = {
+      listProviders: vi.fn(),
       beginAuthorization: vi.fn(),
       completeAuthorization: vi.fn().mockResolvedValue({
         integrationId: 'integration-linkedin-1',
@@ -128,6 +130,7 @@ describe('BizzBLOX managed social consent', () => {
 
   it('turns provider page choices into short-lived opaque AMP selections', async () => {
     const providers: BizzbloxConnectionProviderGateway = {
+      listProviders: vi.fn(),
       beginAuthorization: vi.fn(),
       completeAuthorization: vi.fn().mockResolvedValue({
         integrationId: 'integration-linkedin-1',
@@ -210,6 +213,7 @@ describe('BizzBLOX managed social consent', () => {
 
   it('selects one server-held page only for the exact tenant and revision', async () => {
     const providers: BizzbloxConnectionProviderGateway = {
+      listProviders: vi.fn(),
       beginAuthorization: vi.fn(),
       completeAuthorization: vi.fn(),
       completeCustomFields: vi.fn(),
@@ -288,6 +292,7 @@ describe('BizzBLOX managed social consent', () => {
       },
     ];
     const providers: BizzbloxConnectionProviderGateway = {
+      listProviders: vi.fn(),
       beginAuthorization: vi.fn(),
       completeAuthorization: vi.fn(),
       completeCustomFields: vi.fn().mockResolvedValue({
@@ -339,6 +344,7 @@ describe('BizzBLOX managed social consent', () => {
 
   it('keeps provider-specific manual authorization behind the same AMP flow', async () => {
     const providers: BizzbloxConnectionProviderGateway = {
+      listProviders: vi.fn(),
       beginAuthorization: vi.fn(),
       completeAuthorization: vi.fn(),
       completeCustomFields: vi.fn(),

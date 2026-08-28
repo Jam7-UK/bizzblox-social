@@ -3,6 +3,44 @@ import { describe, expect, it, vi } from 'vitest';
 import { PostizBizzbloxConnectionProviderGateway } from './bizzblox-connection-provider.gateway';
 
 describe('Postiz BizzBLOX connection provider gateway', () => {
+  it('projects the live configured provider catalogue without provider secrets or implementation fields', async () => {
+    const manager = {
+      getAllIntegrations: vi.fn().mockResolvedValue({
+        social: [
+          {
+            identifier: 'linkedin',
+            name: 'LinkedIn',
+            toolTip: 'Professional network',
+            editor: 'normal',
+            isExternal: false,
+          },
+          {
+            identifier: 'bluesky',
+            name: 'Bluesky',
+            customFields: [
+              {
+                key: 'password',
+                label: 'App password',
+                defaultValue: 'hidden',
+              },
+            ],
+          },
+        ],
+        article: [],
+      }),
+    };
+    const gateway = new PostizBizzbloxConnectionProviderGateway(
+      manager as never,
+      {} as never,
+      {} as never
+    );
+
+    await expect(gateway.listProviders()).resolves.toEqual([
+      { providerKey: 'bluesky', label: 'Bluesky', connectionMode: 'form' },
+      { providerKey: 'linkedin', label: 'LinkedIn', connectionMode: 'oauth' },
+    ]);
+  });
+
   it('uses the fixed callback, stores credentials in the exact organization, and hides page secrets', async () => {
     const provider = {
       identifier: 'facebook',

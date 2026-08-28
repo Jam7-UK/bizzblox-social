@@ -25,6 +25,12 @@ export type BizzbloxConnectionProviderDescription =
     }>
   | Readonly<{ mode: 'manual'; instructions: string }>;
 
+export type BizzbloxConnectionProviderSummary = Readonly<{
+  providerKey: string;
+  label: string;
+  connectionMode: 'oauth' | 'form' | 'manual';
+}>;
+
 export type BizzbloxProviderSelectionOption = Readonly<{
   optionRef: string;
   label: string;
@@ -38,6 +44,7 @@ export type BizzbloxProviderConnectionOutcome = Readonly<{
 }>;
 
 export interface BizzbloxConnectionProviderGateway {
+  listProviders(): Promise<readonly BizzbloxConnectionProviderSummary[]>;
   describe(provider: string): Promise<BizzbloxConnectionProviderDescription>;
   beginAuthorization(
     provider: string,
@@ -195,6 +202,10 @@ export class BizzbloxConnectionsService {
     @Inject(BIZZBLOX_CONNECTION_CONFIG) config: BizzbloxConnectionConfig
   ) {
     this.config = validatedConfig(config);
+  }
+
+  async listProviders() {
+    return await this.providers.listProviders();
   }
 
   async begin(
