@@ -1,5 +1,9 @@
 import { initializeSentry } from '@gitroom/nestjs-libraries/sentry/initialize.sentry';
+import { installManagedRuntimeLogBoundary } from '@gitroom/nestjs-libraries/bizzblox/runtime-logging';
 initializeSentry('backend', true);
+if (process.env.BIZZBLOX_SERVICE_MODE === '1') {
+  installManagedRuntimeLogBoundary();
+}
 import compression from 'compression';
 import type { NextFunction, Request, Response } from 'express';
 

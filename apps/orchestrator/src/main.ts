@@ -1,5 +1,9 @@
 import { initializeSentry } from '@gitroom/nestjs-libraries/sentry/initialize.sentry';
+import { installManagedRuntimeLogBoundary } from '@gitroom/nestjs-libraries/bizzblox/runtime-logging';
 initializeSentry('orchestrator', true);
+if (process.env.BIZZBLOX_SERVICE_MODE === '1') {
+  installManagedRuntimeLogBoundary();
+}
 import 'source-map-support/register';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
@@ -17,6 +21,5 @@ async function bootstrap() {
   await app.listen(port);
   console.log(`Orchestrator health check listening on port ${port}`);
 }
-
 
 bootstrap();

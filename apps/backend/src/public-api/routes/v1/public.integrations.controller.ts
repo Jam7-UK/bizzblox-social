@@ -594,10 +594,11 @@ export class PublicIntegrationsController {
     @Body() body: { methodName: string; data: Record<string, string> }
   ) {
     Sentry.metrics.count('public_api-request', 1);
-    const getIntegration = await this._integrationService.getIntegrationById(
-      org.id,
-      id
-    );
+    const getIntegration =
+      await this._integrationService.getIntegrationForProviderExecution(
+        org.id,
+        id
+      );
 
     if (!getIntegration) {
       throw new HttpException({ msg: 'Integration not found' }, 404);

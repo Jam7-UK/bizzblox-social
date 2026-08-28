@@ -67,6 +67,35 @@ describe('BizzBLOX service route policy', () => {
     ).toEqual({ allowed: false, status: 400 });
   });
 
+  it.each([
+    ['POST', '/public/v1/upload'],
+    ['POST', '/public/v1/posts/validate'],
+    ['POST', '/public/v1/posts'],
+    ['GET', '/public/v1/posts'],
+    ['GET', '/public/v1/posts/post_ref'],
+    ['PUT', '/public/v1/posts/post_ref/status'],
+    ['DELETE', '/public/v1/posts/post_ref'],
+    ['GET', '/public/v1/analytics/post/post_ref'],
+    ['GET', '/public/v1/integration-settings/channel_ref'],
+    ['POST', '/public/v1/integration-trigger/channel_ref'],
+  ])('allows only the exact loopback provider route %s %s', (method, url) => {
+    expect(
+      bizzbloxRouteDecision({
+        method,
+        url,
+        remoteAddress: '::ffff:127.0.0.1',
+      })
+    ).toEqual({ allowed: true });
+    expect(
+      bizzbloxRouteDecision({
+        method,
+        url,
+        remoteAddress: '10.30.1.42',
+        contentLength: '50000000',
+      })
+    ).toEqual({ allowed: false, status: 404 });
+  });
+
   it('returns one bounded generic denial from middleware', () => {
     const status = vi.fn().mockReturnThis();
     const json = vi.fn();

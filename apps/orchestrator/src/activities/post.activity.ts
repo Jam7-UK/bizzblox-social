@@ -32,6 +32,11 @@ import {
   BadBody,
   Disconnect,
 } from '@gitroom/nestjs-libraries/integrations/social.abstract';
+import {
+  integrationForTemporalHistory,
+  postForTemporalHistory,
+  refreshForTemporalHistory,
+} from './temporal-provider-boundary';
 
 // Drops fields the workflow and downstream activities never read — biggest wins are `error` (grows per retry) and `childrenPost` (Prisma side-loads it on every recursive row).
 function slimPost(post: any) {
@@ -58,6 +63,10 @@ function slimPost(post: any) {
     ...rest
   } = post;
   return rest;
+}
+
+function postWithoutProviderCredentials(post: any) {
+  return post?.integration ? postForTemporalHistory(post) : post;
 }
 
 // A genuinely missed occurrence (dead workflow) is only recovered by the
@@ -108,7 +117,25 @@ export class PostActivity {
 
   @ActivityMethod()
   async getIntegrationById(orgId: string, id: string) {
-    return this._integrationService.getIntegrationById(orgId, id);
+    const integration = await this._integrationService.getIntegrationById(
+      orgId,
+      id
+    );
+    return integration ? integrationForTemporalHistory(integration) : null;
+  }
+
+  private async providerIntegration(
+    integration: Pick<Integration, 'id' | 'organizationId'>
+  ): Promise<Integration> {
+    const opened =
+      await this._integrationService.getIntegrationForProviderExecution(
+        integration.organizationId,
+        integration.id
+      );
+    if (!opened) {
+      throw new Error('Provider integration is unavailable.');
+    }
+    return opened;
   }
 
   @ActivityMethod()
@@ -166,7 +193,7 @@ export class PostActivity {
       return false;
     }
 
-    return reanchorInterval(post);
+    return postWithoutProviderCredentials(reanchorInterval(post));
   }
 
   @ActivityMethod()
@@ -191,7 +218,9 @@ export class PostActivity {
 
     // only the root drives the pre-publish sleep and the repeat schedule,
     // the rest are comments
-    const [root, ...comments] = getPosts.map(slimPost);
+    const [root, ...comments] = getPosts.map((post) =>
+      postWithoutProviderCredentials(slimPost(post))
+    );
     return [reanchorInterval(root), ...comments];
   }
 
@@ -211,26 +240,27 @@ export class PostActivity {
     integration: Integration,
     posts: Post[]
   ) {
+    const providerIntegration = await this.providerIntegration(integration);
     // kept only for in-flight postWorkflowV108 runs, which set a
     // heartbeatTimeout on this activity - removing the sender would kill
     // them. Under V109+ (no heartbeatTimeout) this is a no-op and can be
     // dropped once all V108 executions have drained
     return withHeartbeat(() =>
-      this.handleDisconnect(integration, async () => {
+      this.handleDisconnect(providerIntegration, async () => {
         const getIntegration = this._integrationManager.getSocialIntegration(
-          integration.providerIdentifier
+          providerIntegration.providerIdentifier
         );
 
         const newPosts = await this._postService.updateTags(
-          integration.organizationId,
+          providerIntegration.organizationId,
           posts
         );
 
         return getIntegration.comment(
-          integration.internalId,
+          providerIntegration.internalId,
           postId,
           lastPostId,
-          integration.token,
+          providerIntegration.token,
           await Promise.all(
             (newPosts || []).map(async (p) => ({
               id: p.id,
@@ -250,7 +280,7 @@ export class PostActivity {
               ),
             }))
           ),
-          integration
+          providerIntegration
         );
       })
     );
@@ -310,13 +340,14 @@ export class PostActivity {
     posts: Post[],
     allowPending: boolean
   ) {
+    const providerIntegration = await this.providerIntegration(integration);
     // kept only for in-flight postWorkflowV108 runs, which set a
     // heartbeatTimeout on this activity - removing the sender would kill
     // them. Under V109+ (no heartbeatTimeout) this is a no-op and can be
     // dropped once all V108 executions have drained
     return withHeartbeat(() =>
-      this.handleDisconnect(integration, () =>
-        this.postSocialBody(integration, posts, allowPending)
+      this.handleDisconnect(providerIntegration, () =>
+        this.postSocialBody(providerIntegration, posts, allowPending)
       )
     );
   }
@@ -415,24 +446,34 @@ export class PostActivity {
 
   @ActivityMethod()
   async checkPostStatus(integration: Integration, pendingData: any) {
+    const providerIntegration = await this.providerIntegration(integration);
     const getIntegration = this._integrationManager.getSocialIntegration(
-      integration.providerIdentifier
+      providerIntegration.providerIdentifier
     );
 
-    return this.handleDisconnect(integration, () =>
-      getIntegration.checkPostStatus(integration.token, pendingData, integration)
+    return this.handleDisconnect(providerIntegration, () =>
+      getIntegration.checkPostStatus(
+        providerIntegration.token,
+        pendingData,
+        providerIntegration
+      )
     );
   }
 
   @ActivityMethod()
   async finalizePost(integration: Integration, pendingData: any) {
+    const providerIntegration = await this.providerIntegration(integration);
     const getIntegration = this._integrationManager.getSocialIntegration(
-      integration.providerIdentifier
+      providerIntegration.providerIdentifier
     );
 
     return withHeartbeat(() =>
-      this.handleDisconnect(integration, () =>
-        getIntegration.finalizePost(integration.token, pendingData, integration)
+      this.handleDisconnect(providerIntegration, () =>
+        getIntegration.finalizePost(
+          providerIntegration.token,
+          pendingData,
+          providerIntegration
+        )
       )
     );
   }
@@ -567,7 +608,7 @@ export class PostActivity {
         await timer(10000);
       }
 
-      return refresh;
+      return refreshForTemporalHistory(refresh);
     } catch (err) {
       await this._refreshIntegrationService.setBetweenSteps(integration);
       return false;
@@ -596,7 +637,7 @@ export class PostActivity {
         await timer(10000);
       }
 
-      return refresh;
+      return refreshForTemporalHistory(refresh);
     } catch (err) {
       await this._refreshIntegrationService.setBetweenSteps(integration, cause);
       return false;

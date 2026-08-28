@@ -1,4 +1,5 @@
 const INTERNAL_BODY_LIMIT_BYTES = 2 * 1024 * 1024;
+const LOOPBACK_UPLOAD_LIMIT_BYTES = 52 * 1024 * 1024;
 const MAX_URL_BYTES = 8 * 1024;
 const OPAQUE_REF = '[A-Za-z0-9_-]{1,256}';
 const PROVIDER_KEY = '[a-z0-9][a-z0-9_-]{0,63}';
@@ -7,6 +8,7 @@ type RouteRequest = Readonly<{
   method?: string;
   url?: string;
   contentLength?: string;
+  remoteAddress?: string;
 }>;
 
 export type BizzbloxRouteDecision =
@@ -54,8 +56,44 @@ const ROUTES = Object.freeze([
   ],
 ] as const);
 
+const LOOPBACK_ROUTES = Object.freeze([
+  ['POST', /^\/public\/v1\/upload$/],
+  ['POST', /^\/public\/v1\/posts\/validate$/],
+  ['POST', /^\/public\/v1\/posts$/],
+  ['GET', /^\/public\/v1\/posts$/],
+  ['GET', new RegExp(`^/public/v1/posts/${OPAQUE_REF}$`)],
+  ['PUT', new RegExp(`^/public/v1/posts/${OPAQUE_REF}/status$`)],
+  ['DELETE', new RegExp(`^/public/v1/posts/${OPAQUE_REF}$`)],
+  ['GET', new RegExp(`^/public/v1/analytics/post/${OPAQUE_REF}$`)],
+  ['GET', new RegExp(`^/public/v1/integration-settings/${OPAQUE_REF}$`)],
+  ['POST', new RegExp(`^/public/v1/integration-trigger/${OPAQUE_REF}$`)],
+] as const);
+
+function isLoopback(remoteAddress: string | undefined): boolean {
+  return (
+    remoteAddress === '127.0.0.1' ||
+    remoteAddress === '::1' ||
+    remoteAddress === '::ffff:127.0.0.1'
+  );
+}
+
+function routeMatches(
+  routes: typeof ROUTES | typeof LOOPBACK_ROUTES,
+  method: string,
+  pathname: string
+): boolean {
+  return routes.some(
+    ([allowedMethod, pattern]) =>
+      allowedMethod === method && pattern.test(pathname)
+  );
+}
+
 function bodyLimit(pathname: string): number {
-  return pathname.startsWith('/internal/bizzblox/v1/')
+  if (pathname === '/public/v1/upload') {
+    return LOOPBACK_UPLOAD_LIMIT_BYTES;
+  }
+  return pathname.startsWith('/internal/bizzblox/v1/') ||
+    pathname.startsWith('/public/v1/')
     ? INTERNAL_BODY_LIMIT_BYTES
     : 0;
 }
@@ -77,6 +115,14 @@ export function bizzbloxRouteDecision(
     return { allowed: false, status: 404 };
   }
 
+  const allowed =
+    routeMatches(ROUTES, method, pathname) ||
+    (isLoopback(request.remoteAddress) &&
+      routeMatches(LOOPBACK_ROUTES, method, pathname));
+  if (!allowed) {
+    return { allowed: false, status: 404 };
+  }
+
   const contentLength = request.contentLength;
   if (contentLength !== undefined) {
     if (!/^(0|[1-9][0-9]{0,9})$/.test(contentLength)) {
@@ -87,12 +133,7 @@ export function bizzbloxRouteDecision(
     }
   }
 
-  return ROUTES.some(
-    ([allowedMethod, pattern]) =>
-      allowedMethod === method && pattern.test(pathname)
-  )
-    ? { allowed: true }
-    : { allowed: false, status: 404 };
+  return { allowed: true };
 }
 
 type MiddlewareRequest = Readonly<{
@@ -100,6 +141,7 @@ type MiddlewareRequest = Readonly<{
   originalUrl?: string;
   url?: string;
   headers?: Readonly<Record<string, string | string[] | undefined>>;
+  socket?: Readonly<{ remoteAddress?: string }>;
 }>;
 
 type MiddlewareResponse = Readonly<{
@@ -116,6 +158,7 @@ export function bizzbloxRoutePolicy(
   const decision = bizzbloxRouteDecision({
     method: request.method,
     url: request.originalUrl ?? request.url,
+    remoteAddress: request.socket?.remoteAddress,
     contentLength:
       typeof rawContentLength === 'string' ? rawContentLength : undefined,
   });

@@ -92,15 +92,21 @@ export class PostsService {
       return [];
     }
 
+    const getIntegration =
+      await this._integrationService.getIntegrationForProviderExecution(
+        orgId,
+        post.integration.id
+      );
+    if (!getIntegration) {
+      return [];
+    }
     const integrationProvider = this._integrationManager.getSocialIntegration(
-      post.integration.providerIdentifier
+      getIntegration.providerIdentifier
     );
 
     if (!integrationProvider.missing) {
       return [];
     }
-
-    const getIntegration = post.integration!;
 
     if (
       dayjs(getIntegration?.tokenExpiration).isBefore(dayjs()) ||
@@ -165,15 +171,21 @@ export class PostsService {
       return { missing: true };
     }
 
+    const getIntegration =
+      await this._integrationService.getIntegrationForProviderExecution(
+        orgId,
+        post.integration.id
+      );
+    if (!getIntegration) {
+      return [];
+    }
     const integrationProvider = this._integrationManager.getSocialIntegration(
-      post.integration.providerIdentifier
+      getIntegration.providerIdentifier
     );
 
     if (!integrationProvider.postAnalytics) {
       return [];
     }
-
-    const getIntegration = post.integration!;
 
     if (
       dayjs(getIntegration?.tokenExpiration).isBefore(dayjs()) ||
@@ -826,7 +838,10 @@ export class PostsService {
           errors = err?.message || 'Invalid media';
         }
 
-        const maximumCharacters = provider.maxLength(additionalSettings, settings);
+        const maximumCharacters = provider.maxLength(
+          additionalSettings,
+          settings
+        );
         const isX = integration.providerIdentifier === 'x';
 
         const emptyContent = (post.value || []).some((a) => {
@@ -878,7 +893,11 @@ export class PostsService {
   // the platform: require the explicit `republish` opt-in instead. The message
   // doubles as the confirmation dialog for API/MCP automation.
   private guardAgainstRepublish(
-    post: { state: State; publishDate: Date; integration?: { providerIdentifier: string } } | null,
+    post: {
+      state: State;
+      publishDate: Date;
+      integration?: { providerIdentifier: string };
+    } | null,
     source: 'createPost' | 'changeDate'
   ) {
     if (post?.state !== 'PUBLISHED') {
@@ -891,7 +910,9 @@ export class PostsService {
     throw new BadRequestException(
       `This post was already published on ${dayjs
         .utc(post.publishDate)
-        .format('YYYY-MM-DD HH:mm')} UTC. Saving it this way would publish it again to ${
+        .format(
+          'YYYY-MM-DD HH:mm'
+        )} UTC. Saving it this way would publish it again to ${
         post.integration?.providerIdentifier || 'the channel'
       }. To edit without republishing, ${howToUpdate}. To intentionally publish again, pass republish: true.`
     );

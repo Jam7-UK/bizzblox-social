@@ -3,6 +3,10 @@ import { Activity, ActivityMethod } from 'nestjs-temporal-core';
 import { IntegrationService } from '@gitroom/nestjs-libraries/database/prisma/integrations/integration.service';
 import { Integration } from '@prisma/client';
 import { RefreshIntegrationService } from '@gitroom/nestjs-libraries/integrations/refresh.integration.service';
+import {
+  integrationForTemporalHistory,
+  refreshForTemporalHistory,
+} from './temporal-provider-boundary';
 
 @Injectable()
 @Activity()
@@ -14,10 +18,15 @@ export class IntegrationsActivity {
 
   @ActivityMethod()
   async getIntegrationsById(id: string, orgId: string) {
-    return this._integrationService.getIntegrationById(orgId, id);
+    const integration = await this._integrationService.getIntegrationById(
+      orgId,
+      id
+    );
+    return integration ? integrationForTemporalHistory(integration) : null;
   }
 
   async refreshToken(integration: Integration) {
-    return this._refreshIntegrationService.refresh(integration);
+    const refresh = await this._refreshIntegrationService.refresh(integration);
+    return refresh ? refreshForTemporalHistory(refresh) : false;
   }
 }

@@ -28,6 +28,29 @@ context, and exposed only through short-lived exact-object reads. Do not add
 static AWS credentials, public ACLs, bucket-list permission, customer tokens,
 or a local-disk production fallback.
 
+Provider access and refresh tokens are stored only as versioned
+`bizzblox.kms.v1` envelopes. The runtime requests an AES-256 data key from KMS,
+uses AES-GCM locally, and binds both KMS encryption context and GCM additional
+authenticated data to the exact service organization, integration row, token
+purpose, and key version. Ordinary integration reads remain sealed. Only the
+provider execution and refresh methods open them, and those methods run inside
+an API request or Temporal activity so clear tokens never enter workflow input,
+result, search attributes, or history.
+
+Token-root rotation is additive and read-old/write-current:
+
+1. Add the previous version and ARN to
+   `BIZZBLOX_TOKEN_KMS_PREVIOUS_KEYS`; retain its decrypt permission.
+2. Set `BIZZBLOX_TOKEN_KMS_KEY_ARN` and
+   `BIZZBLOX_TOKEN_KEY_VERSION` to the new reviewed root/version.
+3. Deploy and prove an old envelope reads while every refreshed or reconnected
+   token is written with the current version.
+4. Retire an old key only after provider-token inventory proves no envelope
+   references that version and the rollback window has closed.
+
+Never reuse a version for another key, remove an old mapping before migration,
+or place provider tokens or plaintext data keys in environment variables.
+
 ## Reproducible build
 
 ```bash
