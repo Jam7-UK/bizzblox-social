@@ -3,14 +3,17 @@ import { describe, expect, it, vi } from 'vitest';
 import { PostizBizzbloxConnectionProviderGateway } from './bizzblox-connection-provider.gateway';
 
 describe('Postiz BizzBLOX connection provider gateway', () => {
-  it('disconnects only the exact organization integration through Postiz native recovery state', async () => {
+  it('removes only the exact organization integration and proves it is gone', async () => {
     const integration = {
       id: 'integration-linkedin-1',
       organizationId: 'postiz-org-1',
     };
     const integrations = {
-      getIntegrationById: vi.fn().mockResolvedValue(integration),
-      disconnectChannel: vi.fn().mockResolvedValue(undefined),
+      deleteChannel: vi.fn().mockResolvedValue(undefined),
+      getIntegrationById: vi
+        .fn()
+        .mockResolvedValueOnce(integration)
+        .mockResolvedValueOnce(null),
     };
     const gateway = new PostizBizzbloxConnectionProviderGateway(
       {} as never,
@@ -18,19 +21,21 @@ describe('Postiz BizzBLOX connection provider gateway', () => {
       {} as never
     );
 
-    await gateway.disconnectAccount({
-      organizationId: 'postiz-org-1',
-      connectorRevision: 7,
-      integrationId: 'integration-linkedin-1',
-    });
+    await expect(
+      gateway.disconnectAccount({
+        organizationId: 'postiz-org-1',
+        connectorRevision: 7,
+        integrationId: 'integration-linkedin-1',
+      })
+    ).resolves.toEqual({ outcome: 'removed' });
 
     expect(integrations.getIntegrationById).toHaveBeenCalledWith(
       'postiz-org-1',
       'integration-linkedin-1'
     );
-    expect(integrations.disconnectChannel).toHaveBeenCalledWith(
+    expect(integrations.deleteChannel).toHaveBeenCalledWith(
       'postiz-org-1',
-      integration
+      'integration-linkedin-1'
     );
   });
 

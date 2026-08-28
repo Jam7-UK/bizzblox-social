@@ -273,30 +273,12 @@ export class PostizBizzbloxConnectionProviderGateway
         callbackUrl: input.callbackUrl,
       })
     );
-    if (input.reconnectIntegrationId) {
-      const existing = await this.integrations.getIntegrationById(
-        input.organizationId,
-        input.reconnectIntegrationId
-      );
-      if (!existing) throw new Error('Social channel was not found.');
-      if (provider.reConnect) {
-        auth = validAuth(
-          await provider.reConnect(
-            auth.id,
-            existing.internalId,
-            auth.accessToken
-          )
-        );
-      }
-      if (String(auth.id) !== String(existing.internalId)) {
-        await this.integrations.migrateIntegration(
-          input.organizationId,
-          existing.internalId,
-          provider.identifier,
-          { id: String(auth.id), username: auth.username }
-        );
-      }
-    }
+    auth = await this.reconnectAuthenticatedIntegration(
+      input.organizationId,
+      provider,
+      auth,
+      input.reconnectIntegrationId
+    );
     return await this.persist(input.organizationId, provider, auth);
   }
 
@@ -306,6 +288,7 @@ export class PostizBizzbloxConnectionProviderGateway
       connectorRevision: number;
       provider: string;
       fields: Readonly<Record<string, string>>;
+      reconnectIntegrationId?: string;
     }>
   ): Promise<BizzbloxProviderConnectionOutcome> {
     const provider = this.provider(input.provider);
@@ -330,11 +313,16 @@ export class PostizBizzbloxConnectionProviderGateway
       }
       fields[key] = value;
     }
-    const auth = validAuth(
-      await provider.authenticate({
-        code: Buffer.from(JSON.stringify(fields), 'utf8').toString('base64'),
-        codeVerifier: 'none',
-      })
+    const auth = await this.reconnectAuthenticatedIntegration(
+      input.organizationId,
+      provider,
+      validAuth(
+        await provider.authenticate({
+          code: Buffer.from(JSON.stringify(fields), 'utf8').toString('base64'),
+          codeVerifier: 'none',
+        })
+      ),
+      input.reconnectIntegrationId
     );
     return await this.persist(
       input.organizationId,
@@ -350,17 +338,21 @@ export class PostizBizzbloxConnectionProviderGateway
       connectorRevision: number;
       provider: string;
       code: string;
+      reconnectIntegrationId?: string;
     }>
   ): Promise<BizzbloxProviderConnectionOutcome> {
     const provider = this.provider(input.provider);
     if (!provider.isWeb3 || provider.customFields) {
       throw new Error('Manual provider connection is unavailable.');
     }
-    const auth = validAuth(
+    const auth = await this.reconnectAuthenticatedIntegration(
+      input.organizationId,
+      provider,
       await provider.authenticate({
         code: input.code,
         codeVerifier: 'none',
-      })
+      }),
+      input.reconnectIntegrationId
     );
     return await this.persist(input.organizationId, provider, auth);
   }
@@ -386,16 +378,49 @@ export class PostizBizzbloxConnectionProviderGateway
     organizationId: string;
     connectorRevision: number;
     integrationId: string;
-  }): Promise<void> {
+  }): Promise<Readonly<{ outcome: 'removed' | 'reconcile_required' }>> {
     const integration = await this.integrations.getIntegrationById(
       input.organizationId,
       input.integrationId
     );
     if (!integration) throw new Error('Social channel was not found.');
-    await this.integrations.disconnectChannel(
+    await this.integrations.deleteChannel(input.organizationId, integration.id);
+    const readback = await this.integrations.getIntegrationById(
       input.organizationId,
-      integration
+      input.integrationId
     );
+    return readback
+      ? Object.freeze({ outcome: 'reconcile_required' as const })
+      : Object.freeze({ outcome: 'removed' as const });
+  }
+
+  private async reconnectAuthenticatedIntegration(
+    organizationId: string,
+    provider: SelectableProvider,
+    candidate: AuthTokenDetails | string,
+    reconnectIntegrationId?: string
+  ): Promise<AuthTokenDetails> {
+    let auth = validAuth(candidate);
+    if (!reconnectIntegrationId) return auth;
+    const existing = await this.integrations.getIntegrationById(
+      organizationId,
+      reconnectIntegrationId
+    );
+    if (!existing) throw new Error('Social channel was not found.');
+    if (provider.reConnect) {
+      auth = validAuth(
+        await provider.reConnect(auth.id, existing.internalId, auth.accessToken)
+      );
+    }
+    if (String(auth.id) !== String(existing.internalId)) {
+      await this.integrations.migrateIntegration(
+        organizationId,
+        existing.internalId,
+        provider.identifier,
+        { id: String(auth.id), username: auth.username }
+      );
+    }
+    return auth;
   }
 
   private async persist(

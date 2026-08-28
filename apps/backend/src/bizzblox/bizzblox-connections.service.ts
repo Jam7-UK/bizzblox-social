@@ -78,6 +78,7 @@ export interface BizzbloxConnectionProviderGateway {
       connectorRevision: number;
       provider: string;
       fields: Readonly<Record<string, string>>;
+      reconnectIntegrationId?: string;
     }>
   ): Promise<BizzbloxProviderConnectionOutcome>;
   completeManual?(
@@ -86,6 +87,7 @@ export interface BizzbloxConnectionProviderGateway {
       connectorRevision: number;
       provider: string;
       code: string;
+      reconnectIntegrationId?: string;
     }>
   ): Promise<BizzbloxProviderConnectionOutcome>;
   selectAccount(
@@ -103,7 +105,7 @@ export interface BizzbloxConnectionProviderGateway {
       connectorRevision: number;
       integrationId: string;
     }>
-  ): Promise<void>;
+  ): Promise<Readonly<{ outcome: 'removed' | 'reconcile_required' }>>;
   resolveReconnectProvider?(
     input: Readonly<{
       organizationId: string;
@@ -261,26 +263,33 @@ export class BizzbloxConnectionsService {
     if (channel.status === 'disconnected') {
       return Object.freeze({ outcome: 'disconnected' as const });
     }
-    await this.providers.disconnectAccount({
+    const removal = await this.providers.disconnectAccount({
       organizationId,
       connectorRevision,
       integrationId: channel.integrationId,
     });
+    if (removal.outcome !== 'removed') {
+      return Object.freeze({ outcome: 'reconcile_required' as const });
+    }
     const disconnected = await this.channels.markDisconnected({
       organizationId,
       channelHandle,
       connectorRevision,
     });
     if (!disconnected || disconnected.status !== 'disconnected') {
-      throw new Error('Social channel state did not converge.');
+      return Object.freeze({ outcome: 'reconcile_required' as const });
     }
-    return Object.freeze({ outcome: 'disconnected' as const });
+    return Object.freeze({ outcome: 'removed' as const });
   }
 
   async reconnect(
     organizationId: string,
     connectorRevision: number,
-    input: Readonly<{ channelHandle: string }>
+    input: Readonly<{
+      channelHandle: string;
+      fields?: Readonly<Record<string, string>>;
+      manualCode?: string;
+    }>
   ) {
     const channelHandle = opaqueChannelHandle(input.channelHandle);
     if (!this.channels || !this.providers.resolveReconnectProvider) {
@@ -303,6 +312,60 @@ export class BizzbloxConnectionsService {
         integrationId: channel.integrationId,
       })
     );
+    const description = await this.providers.describe(provider);
+    if (description.mode === 'form') {
+      if (!input.fields) return description;
+      const connection = await this.providers.completeCustomFields({
+        organizationId,
+        connectorRevision,
+        provider,
+        fields: input.fields,
+        reconnectIntegrationId: channel.integrationId,
+      });
+      if (
+        connection.integrationId !== channel.integrationId ||
+        connection.selections.length > 0
+      ) {
+        throw new BizzbloxConnectionInputError(
+          'This provider requires account selection.'
+        );
+      }
+      return Object.freeze({ mode: 'connected' as const, provider });
+    }
+    if (description.mode === 'manual') {
+      if (input.fields) {
+        throw new BizzbloxConnectionInputError(
+          'Invalid manual provider connection.'
+        );
+      }
+      if (input.manualCode === undefined) return description;
+      if (!this.providers.completeManual) {
+        throw new BizzbloxConnectionInputError(
+          'This provider connection is unavailable.'
+        );
+      }
+      const connection = await this.providers.completeManual({
+        organizationId,
+        connectorRevision,
+        provider,
+        code: boundedCallbackValue(input.manualCode),
+        reconnectIntegrationId: channel.integrationId,
+      });
+      if (
+        connection.integrationId !== channel.integrationId ||
+        connection.selections.length > 0
+      ) {
+        throw new BizzbloxConnectionInputError(
+          'This provider requires account selection.'
+        );
+      }
+      return Object.freeze({ mode: 'connected' as const, provider });
+    }
+    if (input.fields || input.manualCode !== undefined) {
+      throw new BizzbloxConnectionInputError(
+        'OAuth providers do not accept connection fields.'
+      );
+    }
     const callbackUrl = new URL(
       `/oauth/bizzblox/callback/${provider}`,
       this.config.publicOrigin
