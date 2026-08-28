@@ -110,6 +110,14 @@ function operationFor(method: string, path: string): string | null {
     return 'tenant.ensure';
   }
   if (
+    method === 'POST' &&
+    /^\/internal\/bizzblox\/v1\/tenants\/tenant_synthetic_[A-Za-z0-9_-]{1,103}\/cleanup$/.test(
+      path
+    )
+  ) {
+    return 'tenant.cleanup';
+  }
+  if (
     method === 'GET' &&
     /^\/internal\/bizzblox\/v1\/tenants\/[^/?]+$/.test(path)
   ) {
@@ -197,8 +205,10 @@ function requestBinding(request: BizzbloxVerifiedRequest): Readonly<{
   if (operation !== 'tenant.ensure' && !credential) {
     throw new UnauthorizedException();
   }
-  if (operation === 'tenant.read') {
-    const encodedPathHandle = request.originalUrl.split('/').at(-1);
+  if (operation === 'tenant.read' || operation === 'tenant.cleanup') {
+    const pathParts = request.originalUrl.split('/');
+    const encodedPathHandle =
+      operation === 'tenant.cleanup' ? pathParts.at(-2) : pathParts.at(-1);
     if (
       !encodedPathHandle ||
       decodeURIComponent(encodedPathHandle) !== tenantHandle

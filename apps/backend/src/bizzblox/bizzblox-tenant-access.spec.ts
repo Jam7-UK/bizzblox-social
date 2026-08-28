@@ -16,7 +16,7 @@ describe('BizzBLOX tenant credential access', () => {
       recoveryConsumedAt: null,
     });
     const access = new PrismaBizzbloxTenantAccess(
-      { ensure: vi.fn(), read },
+      { ensure: vi.fn(), read, cleanupSynthetic: vi.fn() },
       {
         generateCredential: vi.fn(),
         hashCredential: (value) =>

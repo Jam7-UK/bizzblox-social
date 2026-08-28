@@ -55,4 +55,24 @@ export class BizzbloxController {
     }
     return this.tenants.readTenant(tenantHandle);
   }
+
+  @Post('/tenants/:tenantHandle/cleanup')
+  async cleanupSyntheticTenant(
+    @Req() request: BizzbloxVerifiedRequest,
+    @Param('tenantHandle') tenantHandle: string
+  ) {
+    const authority = request.bizzbloxAuth;
+    if (
+      authority?.operation !== 'tenant.cleanup' ||
+      authority.tenantHandle !== tenantHandle ||
+      !authority.organizationId ||
+      !/^tenant_synthetic_[A-Za-z0-9_-]{1,103}$/.test(tenantHandle)
+    ) {
+      throw new UnauthorizedException();
+    }
+    return await this.tenants.cleanupSyntheticTenant(
+      tenantHandle,
+      authority.organizationId
+    );
+  }
 }

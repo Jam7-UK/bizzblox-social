@@ -7,6 +7,41 @@ import {
 } from './bizzblox-tenant.service';
 
 describe('BizzBLOX tenant service', () => {
+  it('cleans only an exact synthetic smoke tenant through the credential-bound store', async () => {
+    const cleanupSynthetic = vi.fn().mockResolvedValue(true);
+    const service = new BizzbloxTenantService(
+      { ensure: vi.fn(), read: vi.fn(), cleanupSynthetic },
+      {
+        generateCredential: () => 'retired-tenant-secret-000000000001',
+        hashCredential: (value) => `hash:${value}`,
+        sealCredential: async () => 'unused',
+        unsealCredential: async () => 'unused',
+      },
+      {
+        createOrganization: () => ({
+          apiKey: 'unused',
+          id: 'unused',
+          provenance: 'unused',
+        }),
+      }
+    );
+
+    await expect(
+      service.cleanupSyntheticTenant(
+        'tenant_synthetic_release_123',
+        'postiz-org-synthetic-1'
+      )
+    ).resolves.toEqual({
+      cleanupConfirmed: true,
+      tenantHandle: 'tenant_synthetic_release_123',
+    });
+    expect(cleanupSynthetic).toHaveBeenCalledWith({
+      externalTenantHandle: 'tenant_synthetic_release_123',
+      organizationId: 'postiz-org-synthetic-1',
+      retiredCredentialHash: 'hash:retired-tenant-secret-000000000001',
+    });
+  });
+
   it('creates one opaque tenant and returns the same credential once after an ambiguous retry', async () => {
     let record: BizzbloxTenantRecord | null = null;
     const ensure = vi.fn<BizzbloxTenantStore['ensure']>(async (candidate) => {
@@ -34,7 +69,7 @@ describe('BizzBLOX tenant service', () => {
     });
     const read = vi.fn<BizzbloxTenantStore['read']>(async () => record);
     const service = new BizzbloxTenantService(
-      { ensure, read },
+      { ensure, read, cleanupSynthetic: vi.fn() },
       {
         generateCredential: () => 'tenant-clear-secret-000000000001',
         hashCredential: (value) => `hash:${value}`,
@@ -90,7 +125,7 @@ describe('BizzBLOX tenant service', () => {
     };
     const read = vi.fn<BizzbloxTenantStore['read']>().mockResolvedValue(record);
     const service = new BizzbloxTenantService(
-      { ensure: vi.fn(), read },
+      { ensure: vi.fn(), read, cleanupSynthetic: vi.fn() },
       {
         generateCredential: () => 'unused',
         hashCredential: () => 'unused',

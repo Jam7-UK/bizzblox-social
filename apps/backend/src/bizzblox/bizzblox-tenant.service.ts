@@ -61,6 +61,11 @@ export interface BizzbloxTenantStore {
     candidate: BizzbloxTenantCandidate
   ): Promise<BizzbloxTenantEnsureResult>;
   read(externalTenantHandle: string): Promise<BizzbloxTenantRecord | null>;
+  cleanupSynthetic(input: {
+    externalTenantHandle: string;
+    organizationId: string;
+    retiredCredentialHash: string;
+  }): Promise<boolean>;
 }
 
 export interface BizzbloxTenantCredentials {
@@ -81,7 +86,8 @@ export interface BizzbloxOrganizationFactory {
 export type BizzbloxTenantErrorCode =
   | 'credential_recovery_exhausted'
   | 'idempotency_conflict'
-  | 'mapping_corrupt';
+  | 'mapping_corrupt'
+  | 'synthetic_cleanup_denied';
 
 export class BizzbloxTenantError extends Error {
   constructor(readonly code: BizzbloxTenantErrorCode) {
@@ -123,6 +129,33 @@ export class BizzbloxTenantService {
     @Inject(BIZZBLOX_ORGANIZATION_FACTORY)
     private readonly organizations: BizzbloxOrganizationFactory
   ) {}
+
+  async cleanupSyntheticTenant(
+    externalTenantHandle: string,
+    organizationId: string
+  ): Promise<Readonly<{ cleanupConfirmed: true; tenantHandle: string }>> {
+    if (
+      !/^tenant_synthetic_[A-Za-z0-9_-]{1,103}$/.test(externalTenantHandle) ||
+      !organizationId ||
+      organizationId.length > 256
+    ) {
+      throw new BizzbloxTenantError('synthetic_cleanup_denied');
+    }
+    const cleanupConfirmed = await this.store.cleanupSynthetic({
+      externalTenantHandle,
+      organizationId,
+      retiredCredentialHash: this.credentials.hashCredential(
+        this.credentials.generateCredential()
+      ),
+    });
+    if (!cleanupConfirmed) {
+      throw new BizzbloxTenantError('synthetic_cleanup_denied');
+    }
+    return Object.freeze({
+      cleanupConfirmed: true as const,
+      tenantHandle: externalTenantHandle,
+    });
+  }
 
   async ensureTenant(input: EnsureTenantInput): Promise<EnsureTenantResponse> {
     if (!validInput(input))

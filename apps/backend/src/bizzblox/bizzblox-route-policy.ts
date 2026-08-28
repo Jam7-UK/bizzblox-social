@@ -3,6 +3,7 @@ const LOOPBACK_UPLOAD_LIMIT_BYTES = 52 * 1024 * 1024;
 const MAX_URL_BYTES = 8 * 1024;
 const OPAQUE_REF = '[A-Za-z0-9_-]{1,256}';
 const PROVIDER_KEY = '[a-z0-9][a-z0-9_-]{0,63}';
+const SYNTHETIC_TENANT = 'tenant_synthetic_[A-Za-z0-9_-]{1,103}';
 
 type RouteRequest = Readonly<{
   method?: string;
@@ -19,6 +20,10 @@ const ROUTES = Object.freeze([
   ['GET', /^\/health$/],
   ['GET', new RegExp(`^/oauth/bizzblox/callback/${PROVIDER_KEY}$`)],
   ['POST', /^\/internal\/bizzblox\/v1\/tenants:ensure$/],
+  [
+    'POST',
+    new RegExp(`^/internal/bizzblox/v1/tenants/${SYNTHETIC_TENANT}/cleanup$`),
+  ],
   ['GET', new RegExp(`^/internal/bizzblox/v1/tenants/${OPAQUE_REF}$`)],
   ['GET', /^\/internal\/bizzblox\/v1\/providers$/],
   ['POST', /^\/internal\/bizzblox\/v1\/connections:begin$/],

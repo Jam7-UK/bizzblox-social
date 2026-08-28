@@ -62,6 +62,9 @@ describe('BizzBLOX restore canary bootstrap', () => {
     ).resolves.toBe(MEDIA_CANARY_PERSISTED_RESULT);
 
     const put = send.mock.calls[0]?.[0];
+    if (!(put instanceof PutObjectCommand)) {
+      throw new Error('expected PutObjectCommand');
+    }
     expect(put).toBeInstanceOf(PutObjectCommand);
     expect(put.input).toMatchObject({
       Body: Buffer.from(

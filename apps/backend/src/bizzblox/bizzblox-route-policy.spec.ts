@@ -10,6 +10,10 @@ describe('BizzBLOX service route policy', () => {
     ['GET', '/health'],
     ['GET', '/oauth/bizzblox/callback/linkedin?state=opaque&code=opaque'],
     ['POST', '/internal/bizzblox/v1/tenants:ensure'],
+    [
+      'POST',
+      '/internal/bizzblox/v1/tenants/tenant_synthetic_release_123/cleanup',
+    ],
     ['GET', '/internal/bizzblox/v1/providers'],
     ['POST', '/internal/bizzblox/v1/connections:begin'],
     ['POST', '/internal/bizzblox/v1/connections:select'],
@@ -41,6 +45,7 @@ describe('BizzBLOX service route policy', () => {
     ['POST', '/copilot/generate'],
     ['GET', '/api/posts'],
     ['POST', '/internal/bizzblox/v1/unknown'],
+    ['POST', '/internal/bizzblox/v1/tenants/tenant_customer_123/cleanup'],
     ['DELETE', '/internal/bizzblox/v1/publications/by-external/post'],
     ['GET', '/oauth/bizzblox/callback/../../dashboard'],
   ])('denies the non-product route %s %s', (method, url) => {

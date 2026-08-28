@@ -70,6 +70,11 @@ function safeCount(value: unknown): number {
   return value as number;
 }
 
+function checksumSha256(value: unknown): string {
+  if (typeof value !== 'string') return fail();
+  return value;
+}
+
 function optionalToken(value: unknown): string | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== 'string' || value.length === 0 || value.length > 2_048)
@@ -141,7 +146,7 @@ async function verifyObject(
   if (safeCount(response.ObjectSize) !== object.byteCount) return fail();
   return Object.freeze({
     byteCount: object.byteCount,
-    checksumSha256: checksum.ChecksumSHA256,
+    checksumSha256: checksumSha256(checksum.ChecksumSHA256),
     key: object.key,
   });
 }

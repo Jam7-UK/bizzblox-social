@@ -94,6 +94,13 @@ describe('BizzBLOX service authentication guard', () => {
   it.each([
     ['provider.list', 'GET', '/internal/bizzblox/v1/providers', undefined],
     [
+      'tenant.cleanup',
+      'POST',
+      '/internal/bizzblox/v1/tenants/tenant_synthetic_release_123/cleanup',
+      {},
+      'tenant_synthetic_release_123',
+    ],
+    [
       'connection.begin',
       'POST',
       '/internal/bizzblox/v1/connections:begin',
@@ -148,7 +155,13 @@ describe('BizzBLOX service authentication guard', () => {
     ],
   ])(
     'binds %s to only its exact service route',
-    async (operation, method, path, body) => {
+    async (
+      operation,
+      method,
+      path,
+      body,
+      tenantHandle = 'tenant_opaque_123'
+    ) => {
       const verify = vi
         .fn<BizzbloxClaimVerifier['verify']>()
         .mockResolvedValue({
@@ -159,7 +172,9 @@ describe('BizzBLOX service authentication guard', () => {
           nonce: 'nonce_01J6DCG5GFV2X9PPYF4D8KPWYB',
           operation,
           requestDigest: digestRequest(body ?? null, method, path),
-          tenantHandleHash,
+          tenantHandleHash: createHash('sha256')
+            .update(tenantHandle)
+            .digest('hex'),
         });
       const consume = vi
         .fn<BizzbloxReplayStore['consume']>()
@@ -180,7 +195,7 @@ describe('BizzBLOX service authentication guard', () => {
         headers: {
           'x-bizzblox-operation-claim': 'signed-claim',
           'x-bizzblox-tenant-credential': 'tenant-credential',
-          'x-bizzblox-tenant-handle': 'tenant_opaque_123',
+          'x-bizzblox-tenant-handle': tenantHandle,
         },
         method,
         originalUrl: path,
@@ -203,7 +218,7 @@ describe('BizzBLOX service authentication guard', () => {
       );
       expect(request.bizzbloxAuth?.operation).toBe(operation);
       expect(verifyCredential).toHaveBeenCalledWith(
-        'tenant_opaque_123',
+        tenantHandle,
         'tenant-credential'
       );
     }
