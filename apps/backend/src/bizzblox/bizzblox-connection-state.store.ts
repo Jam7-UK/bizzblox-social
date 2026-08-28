@@ -11,6 +11,7 @@ import type { JsonValue } from '@bizzblox/postiz-agent-client';
 
 import type {
   BizzbloxAuthorizationState,
+  BizzbloxConnectionOutcomeState,
   BizzbloxConnectionStateStore,
   BizzbloxProviderSelectionOption,
   BizzbloxSelectionState,
@@ -40,7 +41,7 @@ export type BizzbloxConnectionStateCodecConfig = Readonly<{
   randomBytes: (size: number) => Buffer;
 }>;
 
-type StatePurpose = 'authorization' | 'selection';
+type StatePurpose = 'authorization' | 'selection' | 'outcome';
 
 function decodeBase64Url(value: string): Buffer {
   if (!/^[A-Za-z0-9_-]+$/.test(value)) throw new Error('invalid envelope');
@@ -234,6 +235,27 @@ function authorizationState(value: string): BizzbloxAuthorizationState {
     codeVerifier: stringValue(parsed.codeVerifier, 'code verifier'),
     ampReturnUrl: returnUrlValue(parsed.ampReturnUrl),
     expiresAt: expiryValue(parsed.expiresAt),
+    ...(parsed.userBinding === undefined
+      ? {}
+      : { userBinding: stringValue(parsed.userBinding, 'user binding', 256) }),
+    ...(parsed.outcomeHandle === undefined
+      ? {}
+      : {
+          outcomeHandle: stringValue(
+            parsed.outcomeHandle,
+            'outcome handle',
+            256
+          ),
+        }),
+    ...(parsed.reconnectChannelHandle === undefined
+      ? {}
+      : {
+          reconnectChannelHandle: stringValue(
+            parsed.reconnectChannelHandle,
+            'reconnect channel',
+            256
+          ),
+        }),
   };
 }
 
@@ -254,9 +276,105 @@ function selectionState(value: string): BizzbloxSelectionState {
     connectorRevision: revisionValue(parsed.connectorRevision),
     provider,
     integrationId: stringValue(parsed.integrationId, 'integration', 256),
+    ...(parsed.userBinding === undefined
+      ? {}
+      : { userBinding: stringValue(parsed.userBinding, 'user binding', 256) }),
     ampReturnUrl: returnUrlValue(parsed.ampReturnUrl),
     expiresAt: expiryValue(parsed.expiresAt),
     options: parsed.options.map(selectionOption),
+  };
+}
+
+function outcomeState(value: string): BizzbloxConnectionOutcomeState {
+  const parsed: unknown = JSON.parse(value);
+  if (!isRecord(parsed) || !isRecord(parsed.result)) {
+    throw new Error('Invalid connection outcome state.');
+  }
+  const organizationId = stringValue(
+    parsed.organizationId,
+    'organization',
+    256
+  );
+  const connectorRevision = revisionValue(parsed.connectorRevision);
+  const userBinding = stringValue(parsed.userBinding, 'user binding', 256);
+  const expiresAt = expiryValue(parsed.expiresAt);
+  const outcome = parsed.result.outcome;
+  if (outcome === 'failed') {
+    return {
+      organizationId,
+      connectorRevision,
+      userBinding,
+      expiresAt,
+      result: { outcome: 'failed' },
+    };
+  }
+  const channelHandle = stringValue(
+    parsed.result.channelHandle,
+    'channel handle',
+    256
+  );
+  if (!/^bbx_ch_[A-Za-z0-9_-]{8,256}$/.test(channelHandle)) {
+    throw new Error('Invalid channel handle.');
+  }
+  const resultRevision = revisionValue(parsed.result.connectorRevision);
+  if (resultRevision !== connectorRevision) {
+    throw new Error('Invalid connection outcome revision.');
+  }
+  if (outcome === 'connected') {
+    return {
+      organizationId,
+      connectorRevision,
+      userBinding,
+      expiresAt,
+      result: { outcome, channelHandle, connectorRevision: resultRevision },
+    };
+  }
+  if (outcome !== 'selection_required' || !isRecord(parsed.result.selection)) {
+    throw new Error('Invalid connection outcome.');
+  }
+  const selection = parsed.result.selection;
+  if (!Array.isArray(selection.options) || selection.options.length < 1) {
+    throw new Error('Invalid connection outcome selection.');
+  }
+  const providerKey = stringValue(selection.providerKey, 'provider', 100);
+  if (!/^[a-z0-9][a-z0-9-]{0,99}$/.test(providerKey)) {
+    throw new Error('Invalid provider.');
+  }
+  return {
+    organizationId,
+    connectorRevision,
+    userBinding,
+    expiresAt,
+    result: {
+      outcome,
+      channelHandle,
+      connectorRevision: resultRevision,
+      selection: {
+        providerKey,
+        attemptHandle: stringValue(
+          selection.attemptHandle,
+          'selection attempt',
+          256
+        ),
+        expiresAt: expiryValue(selection.expiresAt),
+        options: selection.options.map((option) => {
+          if (!isRecord(option)) throw new Error('Invalid selection option.');
+          const picture =
+            option.picture === undefined
+              ? undefined
+              : stringValue(option.picture, 'selection picture');
+          return {
+            optionRef: stringValue(
+              option.optionRef,
+              'selection reference',
+              256
+            ),
+            label: stringValue(option.label, 'selection label', 512),
+            ...(picture === undefined ? {} : { picture }),
+          };
+        }),
+      },
+    },
   };
 }
 
@@ -275,7 +393,10 @@ export class RedisBizzbloxConnectionStateStore
   private async save(
     key: string,
     purpose: StatePurpose,
-    state: BizzbloxAuthorizationState | BizzbloxSelectionState
+    state:
+      | BizzbloxAuthorizationState
+      | BizzbloxSelectionState
+      | BizzbloxConnectionOutcomeState
   ): Promise<void> {
     const ttl = state.expiresAt - this.clock().getTime();
     if (ttl <= 0 || ttl > 10 * 60_000) {
@@ -284,6 +405,52 @@ export class RedisBizzbloxConnectionStateStore
     const envelope = this.codec.seal(JSON.stringify(state), purpose);
     const result = await this.redis.set(key, envelope, 'PX', ttl, 'NX');
     if (result !== 'OK') throw new Error('Connection state collision.');
+  }
+
+  async saveOutcome(
+    outcomeHandle: string,
+    state: BizzbloxConnectionOutcomeState
+  ): Promise<void> {
+    await this.save(
+      stateKey('outcome', [
+        state.organizationId,
+        String(state.connectorRevision),
+        state.userBinding,
+        outcomeHandle,
+      ]),
+      'outcome',
+      state
+    );
+  }
+
+  async consumeOutcome(
+    organizationId: string,
+    connectorRevision: number,
+    userBinding: string,
+    outcomeHandle: string
+  ): Promise<BizzbloxConnectionOutcomeState | null> {
+    const envelope = await this.redis.getdel(
+      stateKey('outcome', [
+        organizationId,
+        String(connectorRevision),
+        userBinding,
+        outcomeHandle,
+      ])
+    );
+    if (!envelope) return null;
+    const state = outcomeState(this.codec.unseal(envelope, 'outcome'));
+    const left = Buffer.from(
+      `${state.organizationId}\u0000${state.connectorRevision}\u0000${state.userBinding}`,
+      'utf8'
+    );
+    const right = Buffer.from(
+      `${organizationId}\u0000${connectorRevision}\u0000${userBinding}`,
+      'utf8'
+    );
+    if (left.byteLength !== right.byteLength || !timingSafeEqual(left, right)) {
+      return null;
+    }
+    return state;
   }
 
   async saveAuthorization(

@@ -5,7 +5,9 @@ import type { JsonValue } from '@bizzblox/postiz-agent-client';
 
 import {
   BIZZBLOX_CHANNEL_DIRECTORY,
+  BIZZBLOX_OPAQUE_REFS,
   type BizzbloxChannelDirectory,
+  type BizzbloxOpaqueRefs,
 } from './bizzblox-contract.service';
 
 export const BIZZBLOX_CONNECTION_PROVIDERS = Symbol(
@@ -122,17 +124,51 @@ export type BizzbloxAuthorizationState = Readonly<{
   codeVerifier: string;
   ampReturnUrl: string;
   expiresAt: number;
+  userBinding?: string;
+  outcomeHandle?: string;
   reconnectChannelHandle?: string;
 }>;
 
 export type BizzbloxSelectionState = Readonly<{
   organizationId: string;
   connectorRevision: number;
+  userBinding?: string;
   provider: string;
   integrationId: string;
   ampReturnUrl: string;
   expiresAt: number;
   options: readonly BizzbloxProviderSelectionOption[];
+}>;
+
+export type BizzbloxConnectionOutcomeResult =
+  | Readonly<{
+      outcome: 'connected';
+      channelHandle: string;
+      connectorRevision: number;
+    }>
+  | Readonly<{
+      outcome: 'selection_required';
+      channelHandle: string;
+      connectorRevision: number;
+      selection: Readonly<{
+        providerKey: string;
+        attemptHandle: string;
+        expiresAt: number;
+        options: readonly Readonly<{
+          optionRef: string;
+          label: string;
+          picture?: string;
+        }>[];
+      }>;
+    }>
+  | Readonly<{ outcome: 'failed' }>;
+
+export type BizzbloxConnectionOutcomeState = Readonly<{
+  organizationId: string;
+  connectorRevision: number;
+  userBinding: string;
+  expiresAt: number;
+  result: BizzbloxConnectionOutcomeResult;
 }>;
 
 export interface BizzbloxConnectionStateStore {
@@ -152,6 +188,16 @@ export interface BizzbloxConnectionStateStore {
     connectorRevision: number,
     attemptHandle: string
   ): Promise<BizzbloxSelectionState | null>;
+  saveOutcome?(
+    outcomeHandle: string,
+    state: BizzbloxConnectionOutcomeState
+  ): Promise<void>;
+  consumeOutcome?(
+    organizationId: string,
+    connectorRevision: number,
+    userBinding: string,
+    outcomeHandle: string
+  ): Promise<BizzbloxConnectionOutcomeState | null>;
 }
 
 export type BizzbloxConnectionConfig = Readonly<{
@@ -190,6 +236,22 @@ function opaqueChannelHandle(value: string): string {
   const normalized = value.trim();
   if (!/^bbx_ch_[A-Za-z0-9_-]{8,256}$/.test(normalized)) {
     throw new BizzbloxConnectionInputError('Invalid social channel.');
+  }
+  return normalized;
+}
+
+function opaqueUserBinding(value: string | undefined): string {
+  const normalized = value?.trim() ?? '';
+  if (!/^[A-Za-z0-9:_-]{16,256}$/.test(normalized)) {
+    throw new BizzbloxConnectionInputError('Invalid connection user binding.');
+  }
+  return normalized;
+}
+
+function opaqueOutcomeHandle(value: string): string {
+  const normalized = value.trim();
+  if (!/^[A-Za-z0-9_-]{32,256}$/.test(normalized)) {
+    throw new BizzbloxConnectionInputError('Invalid connection outcome.');
   }
   return normalized;
 }
@@ -233,7 +295,10 @@ export class BizzbloxConnectionsService {
     @Inject(BIZZBLOX_CONNECTION_CONFIG) config: BizzbloxConnectionConfig,
     @Optional()
     @Inject(BIZZBLOX_CHANNEL_DIRECTORY)
-    private readonly channels?: BizzbloxChannelDirectory
+    private readonly channels?: BizzbloxChannelDirectory,
+    @Optional()
+    @Inject(BIZZBLOX_OPAQUE_REFS)
+    private readonly refs?: BizzbloxOpaqueRefs
   ) {
     this.config = validatedConfig(config);
   }
@@ -287,6 +352,7 @@ export class BizzbloxConnectionsService {
     connectorRevision: number,
     input: Readonly<{
       channelHandle: string;
+      userBinding?: string;
       fields?: Readonly<Record<string, string>>;
       manualCode?: string;
     }>
@@ -374,6 +440,8 @@ export class BizzbloxConnectionsService {
       provider,
       callbackUrl
     );
+    const userBinding = opaqueUserBinding(input.userBinding);
+    const outcomeHandle = opaqueOutcomeHandle(this.config.createOpaqueHandle());
     const expiresAt = this.config.clock().getTime() + 10 * 60_000;
     await this.states.saveAuthorization(authorization.providerState, {
       organizationId,
@@ -382,6 +450,8 @@ export class BizzbloxConnectionsService {
       codeVerifier: authorization.codeVerifier,
       ampReturnUrl: this.config.ampReturnUrl,
       expiresAt,
+      userBinding,
+      outcomeHandle,
       reconnectChannelHandle: channelHandle,
     });
     return Object.freeze({
@@ -396,6 +466,7 @@ export class BizzbloxConnectionsService {
     connectorRevision: number,
     input: Readonly<{
       provider: string;
+      userBinding?: string;
       fields?: Readonly<Record<string, string>>;
       manualCode?: string;
     }>
@@ -456,6 +527,8 @@ export class BizzbloxConnectionsService {
       provider,
       callbackUrl
     );
+    const userBinding = opaqueUserBinding(input.userBinding);
+    const outcomeHandle = opaqueOutcomeHandle(this.config.createOpaqueHandle());
     const expiresAt = this.config.clock().getTime() + 10 * 60_000;
     await this.states.saveAuthorization(authorization.providerState, {
       organizationId,
@@ -464,6 +537,8 @@ export class BizzbloxConnectionsService {
       codeVerifier: authorization.codeVerifier,
       ampReturnUrl: this.config.ampReturnUrl,
       expiresAt,
+      userBinding,
+      outcomeHandle,
     });
     return Object.freeze({
       mode: 'redirect' as const,
@@ -479,23 +554,28 @@ export class BizzbloxConnectionsService {
       code: string;
     }>
   ) {
+    let state: BizzbloxAuthorizationState | null = null;
     const failed = Object.freeze({
       outcome: 'failed' as const,
-      redirectUrl: `${this.config.ampReturnUrl}?social=failed`,
+      redirectUrl: this.config.ampReturnUrl,
     });
-
     try {
       const provider = providerIdentifier(input.provider);
       const providerState = boundedCallbackValue(input.providerState);
       const code = boundedCallbackValue(input.code);
-      const state = await this.states.consumeAuthorization(providerState);
+      state = await this.states.consumeAuthorization(providerState);
       if (
         !state ||
         state.provider !== provider ||
+        !state.userBinding ||
+        !state.outcomeHandle ||
         state.expiresAt <= this.config.clock().getTime()
       ) {
         return failed;
       }
+      const userBinding = opaqueUserBinding(state.userBinding);
+      const outcomeHandle = opaqueOutcomeHandle(state.outcomeHandle);
+      if (!this.states.saveOutcome || !this.refs) return failed;
 
       const callbackUrl = new URL(
         `/oauth/bizzblox/callback/${provider}`,
@@ -530,8 +610,11 @@ export class BizzbloxConnectionsService {
         reconnectChannel &&
         connection.integrationId !== reconnectChannel.integrationId
       ) {
-        return failed;
+        throw new Error('Reconnect integration changed.');
       }
+      const channelHandle =
+        reconnectChannel?.channelHandle ??
+        this.refs.channel(state.organizationId, connection.integrationId);
       if (connection.selections.length > 0) {
         const attemptHandle = this.config.createOpaqueHandle();
         const expiresAt = this.config.clock().getTime() + 5 * 60_000;
@@ -546,38 +629,126 @@ export class BizzbloxConnectionsService {
           connectorRevision: state.connectorRevision,
           provider,
           integrationId: connection.integrationId,
+          userBinding,
           ampReturnUrl: this.config.ampReturnUrl,
           expiresAt,
           options,
         });
+        await this.states.saveOutcome(outcomeHandle, {
+          organizationId: state.organizationId,
+          connectorRevision: state.connectorRevision,
+          userBinding,
+          expiresAt: state.expiresAt,
+          result: {
+            outcome: 'selection_required',
+            channelHandle,
+            connectorRevision: state.connectorRevision,
+            selection: {
+              providerKey: provider,
+              attemptHandle,
+              expiresAt,
+              options: options.map(({ optionRef, label, picture }) => ({
+                optionRef,
+                label,
+                ...(picture === null ? {} : { picture }),
+              })),
+            },
+          },
+        });
+        const redirectUrl = new URL(state.ampReturnUrl);
+        redirectUrl.searchParams.set('outcome', outcomeHandle);
         return Object.freeze({
-          outcome: 'selection_required' as const,
-          attemptHandle,
-          expiresAt,
-          options: options.map(({ optionRef, label, picture }) => ({
-            optionRef,
-            label,
-            picture,
-          })),
+          outcome: 'ready' as const,
+          redirectUrl: redirectUrl.toString(),
         });
       }
 
-      const redirectUrl = new URL(this.config.ampReturnUrl);
-      redirectUrl.searchParams.set('social', 'connected');
-      redirectUrl.searchParams.set('provider', provider);
+      await this.states.saveOutcome(outcomeHandle, {
+        organizationId: state.organizationId,
+        connectorRevision: state.connectorRevision,
+        userBinding,
+        expiresAt: state.expiresAt,
+        result: {
+          outcome: 'connected',
+          channelHandle,
+          connectorRevision: state.connectorRevision,
+        },
+      });
+      const redirectUrl = new URL(state.ampReturnUrl);
+      redirectUrl.searchParams.set('outcome', outcomeHandle);
       return Object.freeze({
-        outcome: 'connected' as const,
+        outcome: 'ready' as const,
         redirectUrl: redirectUrl.toString(),
       });
     } catch {
+      if (
+        state?.userBinding &&
+        state.outcomeHandle &&
+        state.expiresAt > this.config.clock().getTime() &&
+        this.states.saveOutcome
+      ) {
+        try {
+          const userBinding = opaqueUserBinding(state.userBinding);
+          const outcomeHandle = opaqueOutcomeHandle(state.outcomeHandle);
+          await this.states.saveOutcome(outcomeHandle, {
+            organizationId: state.organizationId,
+            connectorRevision: state.connectorRevision,
+            userBinding,
+            expiresAt: state.expiresAt,
+            result: { outcome: 'failed' },
+          });
+          const redirectUrl = new URL(state.ampReturnUrl);
+          redirectUrl.searchParams.set('outcome', outcomeHandle);
+          return Object.freeze({
+            outcome: 'ready' as const,
+            redirectUrl: redirectUrl.toString(),
+          });
+        } catch {
+          return failed;
+        }
+      }
       return failed;
     }
+  }
+
+  async redeemOutcome(
+    organizationId: string,
+    connectorRevision: number,
+    input: Readonly<{ userBinding: string; outcomeHandle: string }>
+  ): Promise<BizzbloxConnectionOutcomeResult> {
+    if (!this.states.consumeOutcome) {
+      throw new Error('Connection outcome redemption is unavailable.');
+    }
+    const userBinding = opaqueUserBinding(input.userBinding);
+    const outcomeHandle = opaqueOutcomeHandle(input.outcomeHandle);
+    const state = await this.states.consumeOutcome(
+      organizationId,
+      connectorRevision,
+      userBinding,
+      outcomeHandle
+    );
+    if (
+      !state ||
+      state.organizationId !== organizationId ||
+      state.connectorRevision !== connectorRevision ||
+      state.userBinding !== userBinding ||
+      state.expiresAt <= this.config.clock().getTime()
+    ) {
+      throw new BizzbloxConnectionInputError(
+        'Connection outcome is stale or already used.'
+      );
+    }
+    return state.result;
   }
 
   async select(
     organizationId: string,
     connectorRevision: number,
-    input: Readonly<{ attemptHandle: string; optionRef: string }>
+    input: Readonly<{
+      attemptHandle: string;
+      optionRef: string;
+      userBinding?: string;
+    }>
   ) {
     const failed = Object.freeze({ outcome: 'failed' as const });
 
@@ -593,7 +764,9 @@ export class BizzbloxConnectionsService {
         !state ||
         state.organizationId !== organizationId ||
         state.connectorRevision !== connectorRevision ||
-        state.expiresAt <= this.config.clock().getTime()
+        state.expiresAt <= this.config.clock().getTime() ||
+        !state.userBinding ||
+        state.userBinding !== opaqueUserBinding(input.userBinding)
       ) {
         return failed;
       }
@@ -611,12 +784,11 @@ export class BizzbloxConnectionsService {
         integrationId: state.integrationId,
         selector: option.selector,
       });
-      const redirectUrl = new URL(this.config.ampReturnUrl);
-      redirectUrl.searchParams.set('social', 'connected');
-      redirectUrl.searchParams.set('provider', state.provider);
+      if (!this.refs) return failed;
       return Object.freeze({
         outcome: 'connected' as const,
-        redirectUrl: redirectUrl.toString(),
+        channelHandle: this.refs.channel(organizationId, state.integrationId),
+        connectorRevision,
       });
     } catch {
       return failed;

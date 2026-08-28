@@ -6,6 +6,7 @@ import {
 } from './bizzblox-connection-state.store';
 import type {
   BizzbloxAuthorizationState,
+  BizzbloxConnectionOutcomeState,
   BizzbloxSelectionState,
 } from './bizzblox-connections.service';
 
@@ -108,6 +109,59 @@ describe('BizzBLOX managed connection state store', () => {
     ).resolves.toEqual(state);
     await expect(
       store.consumeSelection('postiz-org-1', 7, 'selection-attempt-1')
+    ).resolves.toBeNull();
+  });
+
+  it('redeems an encrypted outcome once under its exact tenant, revision, and user', async () => {
+    const values = new Map<string, string>();
+    const redis = {
+      async getdel(key: string) {
+        const value = values.get(key) ?? null;
+        values.delete(key);
+        return value;
+      },
+      async set(key: string, value: string) {
+        values.set(key, value);
+        return 'OK' as const;
+      },
+    };
+    const store = new RedisBizzbloxConnectionStateStore(
+      redis,
+      new BizzbloxConnectionStateCodec({
+        encryptionKey: Buffer.alloc(32, 5),
+        randomBytes: (size) => Buffer.alloc(size, 6),
+      }),
+      () => new Date('2026-08-27T22:00:00.000Z')
+    );
+    const state: BizzbloxConnectionOutcomeState = {
+      organizationId: 'postiz-org-1',
+      connectorRevision: 7,
+      userBinding: 'user_binding_exact_abcdefghijklmnopqrstuvwxyz',
+      expiresAt: Date.parse('2026-08-27T22:05:00.000Z'),
+      result: {
+        outcome: 'connected',
+        channelHandle: 'bbx_ch_exact_linkedin',
+        connectorRevision: 7,
+      },
+    };
+    const handle = 'outcome_opaque_abcdefghijklmnopqrstuvwxyz123456';
+
+    await store.saveOutcome(handle, state);
+
+    await expect(
+      store.consumeOutcome('postiz-org-2', 7, state.userBinding, handle)
+    ).resolves.toBeNull();
+    await expect(
+      store.consumeOutcome('postiz-org-1', 8, state.userBinding, handle)
+    ).resolves.toBeNull();
+    await expect(
+      store.consumeOutcome('postiz-org-1', 7, 'wrong-user-binding', handle)
+    ).resolves.toBeNull();
+    await expect(
+      store.consumeOutcome('postiz-org-1', 7, state.userBinding, handle)
+    ).resolves.toEqual(state);
+    await expect(
+      store.consumeOutcome('postiz-org-1', 7, state.userBinding, handle)
     ).resolves.toBeNull();
   });
 });

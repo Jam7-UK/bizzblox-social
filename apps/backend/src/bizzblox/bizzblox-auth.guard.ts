@@ -108,6 +108,12 @@ function operationFor(method: string, path: string): string | null {
   }
   if (
     method === 'POST' &&
+    path === '/internal/bizzblox/v1/connections:outcome'
+  ) {
+    return 'connection.outcome.redeem';
+  }
+  if (
+    method === 'POST' &&
     path === '/internal/bizzblox/v1/connections:disconnect'
   ) {
     return 'connection.disconnect';

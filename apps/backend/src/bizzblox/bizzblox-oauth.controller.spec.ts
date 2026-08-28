@@ -3,19 +3,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { BizzbloxOAuthController } from './bizzblox-oauth.controller';
 
 describe('BizzBLOX branded OAuth callback', () => {
-  it('redirects safe two-step choices to AMP in a fragment', async () => {
+  it('redirects only an opaque one-use outcome handle to AMP', async () => {
     const connections = {
       completeCallback: vi.fn().mockResolvedValue({
-        outcome: 'selection_required',
-        attemptHandle: 'selection-attempt-1',
-        expiresAt: Date.parse('2026-08-27T22:07:00.000Z'),
-        options: [
-          {
-            optionRef: 'selection-option-1',
-            label: 'BizzBLOX Company',
-            picture: 'https://cdn.linkedin.com/company.png',
-          },
-        ],
+        outcome: 'ready',
+        redirectUrl:
+          'https://mvp.bizzblox.com/settings/social?outcome=outcome_opaque_abcdefghijklmnopqrstuvwxyz123456',
       }),
     };
     const controller = new BizzbloxOAuthController(connections as never, {
@@ -40,25 +33,12 @@ describe('BizzBLOX branded OAuth callback', () => {
     expect(`${redirect.origin}${redirect.pathname}`).toBe(
       'https://mvp.bizzblox.com/settings/social'
     );
-    expect(redirect.searchParams.get('social')).toBe('selection_required');
-    const encoded = new URLSearchParams(redirect.hash.slice(1)).get(
-      'selection'
+    expect(redirect.searchParams.get('outcome')).toBe(
+      'outcome_opaque_abcdefghijklmnopqrstuvwxyz123456'
     );
-    expect(encoded).not.toBeNull();
-    expect(
-      JSON.parse(Buffer.from(encoded!, 'base64url').toString('utf8'))
-    ).toEqual({
-      provider: 'linkedin',
-      attemptHandle: 'selection-attempt-1',
-      expiresAt: Date.parse('2026-08-27T22:07:00.000Z'),
-      options: [
-        {
-          optionRef: 'selection-option-1',
-          label: 'BizzBLOX Company',
-          picture: 'https://cdn.linkedin.com/company.png',
-        },
-      ],
-    });
+    expect(redirect.searchParams.has('social')).toBe(false);
+    expect(redirect.searchParams.has('provider')).toBe(false);
+    expect(redirect.hash).toBe('');
     expect(result.url).not.toContain('postiz');
     expect(result.url).not.toContain('remote-page');
   });

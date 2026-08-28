@@ -24,6 +24,7 @@ import {
 } from './bizzblox-connections.service';
 import {
   BizzbloxBeginConnectionDto,
+  BizzbloxConnectionOutcomeDto,
   BizzbloxDisconnectConnectionDto,
   BizzbloxReconnectConnectionDto,
   BizzbloxProviderHelperDto,
@@ -93,6 +94,21 @@ export class BizzbloxConnectionsController {
     const authority = this.authority(request, 'connection.select');
     return await this.safe(async () =>
       this.connections.select(
+        authority.organizationId!,
+        authority.connectorRevision,
+        body
+      )
+    );
+  }
+
+  @Post('/connections:outcome')
+  async outcome(
+    @Req() request: BizzbloxVerifiedRequest,
+    @Body() body: BizzbloxConnectionOutcomeDto
+  ) {
+    const authority = this.authority(request, 'connection.outcome.redeem');
+    return await this.safe(async () =>
+      this.connections.redeemOutcome(
         authority.organizationId!,
         authority.connectorRevision,
         body

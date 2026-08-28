@@ -44,6 +44,8 @@ describe('BizzBLOX managed social consent', () => {
       {
         ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
         clock: () => new Date('2026-08-27T22:03:00.000Z'),
+        createOpaqueHandle: () =>
+          'outcome_opaque_reconnect_abcdefghijklmnopqrstuvwxyz',
         publicOrigin: 'https://social.bizzblox.com',
       },
       {
@@ -57,6 +59,7 @@ describe('BizzBLOX managed social consent', () => {
     await expect(
       service.reconnect('postiz-org-1', 7, {
         channelHandle: channel.channelHandle,
+        userBinding: 'user_binding_exact_abcdefghijklmnopqrstuvwxyz',
         fields: { token: 'replacement-token' },
       })
     ).resolves.toEqual({ mode: 'connected', provider: 'linkedin' });
@@ -118,6 +121,7 @@ describe('BizzBLOX managed social consent', () => {
     await expect(
       service.reconnect('postiz-org-1', 7, {
         channelHandle: channel.channelHandle,
+        userBinding: 'user_binding_exact_abcdefghijklmnopqrstuvwxyz',
       })
     ).resolves.toMatchObject({
       mode: 'redirect',
@@ -219,11 +223,14 @@ describe('BizzBLOX managed social consent', () => {
     const service = new BizzbloxConnectionsService(providers, states, {
       ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
       clock: () => new Date('2026-08-27T22:00:00.000Z'),
+      createOpaqueHandle: () =>
+        'outcome_opaque_abcdefghijklmnopqrstuvwxyz123456',
       publicOrigin: 'https://social.bizzblox.com',
     });
 
     const result = await service.begin('postiz-org-1', 7, {
       provider: 'linkedin',
+      userBinding: 'user_binding_exact_abcdefghijklmnopqrstuvwxyz',
     });
 
     expect(result).toEqual({
@@ -242,6 +249,8 @@ describe('BizzBLOX managed social consent', () => {
       codeVerifier: 'pkce-verifier-1',
       ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
       expiresAt: Date.parse('2026-08-27T22:10:00.000Z'),
+      userBinding: 'user_binding_exact_abcdefghijklmnopqrstuvwxyz',
+      outcomeHandle: 'outcome_opaque_abcdefghijklmnopqrstuvwxyz123456',
     });
     expect(JSON.stringify(result)).not.toContain('provider-state-1');
     expect(JSON.stringify(result)).not.toContain('postiz-org-1');
@@ -256,6 +265,8 @@ describe('BizzBLOX managed social consent', () => {
       codeVerifier: 'pkce-verifier-1',
       ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
       expiresAt: Date.parse('2026-08-27T22:10:00.000Z'),
+      userBinding: 'user_binding_exact_abcdefghijklmnopqrstuvwxyz',
+      outcomeHandle: 'outcome_opaque_abcdefghijklmnopqrstuvwxyz123456',
     };
     const providers: BizzbloxConnectionProviderGateway = {
       listProviders: vi.fn(),
@@ -276,12 +287,22 @@ describe('BizzBLOX managed social consent', () => {
         .mockResolvedValueOnce(null),
       saveSelection: vi.fn(),
       consumeSelection: vi.fn(),
+      saveOutcome: vi.fn(),
     };
-    const service = new BizzbloxConnectionsService(providers, states, {
-      ampReturnUrl: authorizationState.ampReturnUrl,
-      clock: () => new Date('2026-08-27T22:02:00.000Z'),
-      publicOrigin: 'https://social.bizzblox.com',
-    });
+    const service = new BizzbloxConnectionsService(
+      providers,
+      states,
+      {
+        ampReturnUrl: authorizationState.ampReturnUrl,
+        clock: () => new Date('2026-08-27T22:02:00.000Z'),
+        publicOrigin: 'https://social.bizzblox.com',
+      },
+      undefined,
+      {
+        channel: vi.fn().mockReturnValue('bbx_ch_exact_linkedin'),
+        helper: vi.fn(),
+      }
+    );
 
     const connected = await service.completeCallback({
       provider: 'linkedin',
@@ -295,15 +316,28 @@ describe('BizzBLOX managed social consent', () => {
     });
 
     expect(connected).toEqual({
-      outcome: 'connected',
+      outcome: 'ready',
       redirectUrl:
-        'https://mvp.bizzblox.com/settings/social?social=connected&provider=linkedin',
+        'https://mvp.bizzblox.com/settings/social?outcome=outcome_opaque_abcdefghijklmnopqrstuvwxyz123456',
     });
     expect(replay).toEqual({
       outcome: 'failed',
-      redirectUrl: 'https://mvp.bizzblox.com/settings/social?social=failed',
+      redirectUrl: 'https://mvp.bizzblox.com/settings/social',
     });
     expect(providers.completeAuthorization).toHaveBeenCalledOnce();
+    expect(states.saveOutcome).toHaveBeenCalledWith(
+      'outcome_opaque_abcdefghijklmnopqrstuvwxyz123456',
+      expect.objectContaining({
+        organizationId: 'postiz-org-1',
+        connectorRevision: 7,
+        userBinding: 'user_binding_exact_abcdefghijklmnopqrstuvwxyz',
+        result: {
+          outcome: 'connected',
+          channelHandle: 'bbx_ch_exact_linkedin',
+          connectorRevision: 7,
+        },
+      })
+    );
     expect(providers.completeAuthorization).toHaveBeenCalledWith({
       organizationId: 'postiz-org-1',
       connectorRevision: 7,
@@ -345,20 +379,32 @@ describe('BizzBLOX managed social consent', () => {
         codeVerifier: 'pkce-verifier-1',
         ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
         expiresAt: Date.parse('2026-08-27T22:10:00.000Z'),
+        userBinding: 'user_binding_exact_abcdefghijklmnopqrstuvwxyz',
+        outcomeHandle: 'outcome_opaque_selection_abcdefghijklmnopqrstuvwxyz',
       }),
       saveSelection: vi.fn().mockResolvedValue(undefined),
       consumeSelection: vi.fn(),
+      saveOutcome: vi.fn(),
     };
     const createOpaqueHandle = vi
       .fn()
       .mockReturnValueOnce('selection-attempt-1')
       .mockReturnValueOnce('selection-option-1');
-    const service = new BizzbloxConnectionsService(providers, states, {
-      ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
-      clock: () => new Date('2026-08-27T22:02:00.000Z'),
-      createOpaqueHandle,
-      publicOrigin: 'https://social.bizzblox.com',
-    });
+    const service = new BizzbloxConnectionsService(
+      providers,
+      states,
+      {
+        ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
+        clock: () => new Date('2026-08-27T22:02:00.000Z'),
+        createOpaqueHandle,
+        publicOrigin: 'https://social.bizzblox.com',
+      },
+      undefined,
+      {
+        channel: vi.fn().mockReturnValue('bbx_ch_exact_linkedin'),
+        helper: vi.fn(),
+      }
+    );
 
     const result = await service.completeCallback({
       provider: 'linkedin',
@@ -367,22 +413,16 @@ describe('BizzBLOX managed social consent', () => {
     });
 
     expect(result).toEqual({
-      outcome: 'selection_required',
-      attemptHandle: 'selection-attempt-1',
-      expiresAt: Date.parse('2026-08-27T22:07:00.000Z'),
-      options: [
-        {
-          optionRef: 'selection-option-1',
-          label: 'BizzBLOX Company',
-          picture: 'https://cdn.linkedin.com/company.png',
-        },
-      ],
+      outcome: 'ready',
+      redirectUrl:
+        'https://mvp.bizzblox.com/settings/social?outcome=outcome_opaque_selection_abcdefghijklmnopqrstuvwxyz',
     });
     expect(states.saveSelection).toHaveBeenCalledWith('selection-attempt-1', {
       organizationId: 'postiz-org-1',
       connectorRevision: 7,
       provider: 'linkedin',
       integrationId: 'integration-linkedin-1',
+      userBinding: 'user_binding_exact_abcdefghijklmnopqrstuvwxyz',
       ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
       expiresAt: Date.parse('2026-08-27T22:07:00.000Z'),
       options: [
@@ -420,6 +460,7 @@ describe('BizzBLOX managed social consent', () => {
           connectorRevision: 7,
           provider: 'linkedin',
           integrationId: 'integration-linkedin-1',
+          userBinding: 'user_binding_exact_abcdefghijklmnopqrstuvwxyz',
           ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
           expiresAt: Date.parse('2026-08-27T22:07:00.000Z'),
           options: [
@@ -433,25 +474,36 @@ describe('BizzBLOX managed social consent', () => {
         })
         .mockResolvedValueOnce(null),
     };
-    const service = new BizzbloxConnectionsService(providers, states, {
-      ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
-      clock: () => new Date('2026-08-27T22:03:00.000Z'),
-      publicOrigin: 'https://social.bizzblox.com',
-    });
+    const service = new BizzbloxConnectionsService(
+      providers,
+      states,
+      {
+        ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
+        clock: () => new Date('2026-08-27T22:03:00.000Z'),
+        publicOrigin: 'https://social.bizzblox.com',
+      },
+      undefined,
+      {
+        channel: vi.fn().mockReturnValue('bbx_ch_exact_linkedin'),
+        helper: vi.fn(),
+      }
+    );
 
     const connected = await service.select('postiz-org-1', 7, {
       attemptHandle: 'selection-attempt-1',
       optionRef: 'selection-option-1',
+      userBinding: 'user_binding_exact_abcdefghijklmnopqrstuvwxyz',
     });
     const replay = await service.select('postiz-org-1', 7, {
       attemptHandle: 'selection-attempt-1',
       optionRef: 'selection-option-1',
+      userBinding: 'user_binding_exact_abcdefghijklmnopqrstuvwxyz',
     });
 
     expect(connected).toEqual({
       outcome: 'connected',
-      redirectUrl:
-        'https://mvp.bizzblox.com/settings/social?social=connected&provider=linkedin',
+      channelHandle: 'bbx_ch_exact_linkedin',
+      connectorRevision: 7,
     });
     expect(replay).toEqual({ outcome: 'failed' });
     expect(providers.selectAccount).toHaveBeenCalledOnce();

@@ -52,23 +52,6 @@ export class BizzbloxOAuthController {
       providerState: providerState ?? '',
       code: code ?? '',
     });
-    if (result.outcome === 'selection_required') {
-      const redirect = new URL(this.ampReturnUrl);
-      redirect.searchParams.set('social', 'selection_required');
-      redirect.hash = new URLSearchParams({
-        selection: Buffer.from(
-          JSON.stringify({
-            provider,
-            attemptHandle: result.attemptHandle,
-            expiresAt: result.expiresAt,
-            options: result.options,
-          }),
-          'utf8'
-        ).toString('base64url'),
-      }).toString();
-      return { statusCode: 303, url: redirect.toString() };
-    }
-
     const redirect = new URL(result.redirectUrl);
     if (
       redirect.origin !== this.ampReturnUrl.origin ||

@@ -12,6 +12,10 @@ export class BizzbloxBeginConnectionDto {
   @Matches(/^[a-z0-9][a-z0-9-]{0,99}$/)
   provider: string;
 
+  @IsString()
+  @Matches(/^[A-Za-z0-9:_-]{16,256}$/)
+  userBinding: string;
+
   @IsOptional()
   @IsObject()
   fields?: Readonly<Record<string, string>>;
@@ -23,6 +27,10 @@ export class BizzbloxBeginConnectionDto {
 }
 
 export class BizzbloxSelectConnectionDto {
+  @IsString()
+  @Matches(/^[A-Za-z0-9:_-]{16,256}$/)
+  userBinding: string;
+
   @IsString()
   @MaxLength(2_048)
   attemptHandle: string;
@@ -42,6 +50,29 @@ export class BizzbloxReconnectConnectionDto {
   @IsString()
   @Matches(/^bbx_ch_[A-Za-z0-9_-]{8,256}$/)
   channelHandle: string;
+
+  @IsString()
+  @Matches(/^[A-Za-z0-9:_-]{16,256}$/)
+  userBinding: string;
+
+  @IsOptional()
+  @IsObject()
+  fields?: Readonly<Record<string, string>>;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2_048)
+  manualCode?: string;
+}
+
+export class BizzbloxConnectionOutcomeDto {
+  @IsString()
+  @Matches(/^[A-Za-z0-9:_-]{16,256}$/)
+  userBinding: string;
+
+  @IsString()
+  @Matches(/^[A-Za-z0-9_-]{32,256}$/)
+  outcomeHandle: string;
 }
 
 export class BizzbloxProviderHelperDto {
