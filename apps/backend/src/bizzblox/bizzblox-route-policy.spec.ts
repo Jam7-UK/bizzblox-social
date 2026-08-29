@@ -23,6 +23,7 @@ describe('BizzBLOX service route policy', () => {
     ['POST', '/internal/bizzblox/v1/channels/channel_ref/tools/helper_ref'],
     ['POST', '/internal/bizzblox/v1/publications:validate'],
     ['POST', '/internal/bizzblox/v1/publications'],
+    ['POST', '/internal/bizzblox/v1/media:upload'],
     ['GET', '/internal/bizzblox/v1/publications/by-external/publication_ref'],
     [
       'POST',
@@ -73,7 +74,18 @@ describe('BizzBLOX service route policy', () => {
     ).toEqual({ allowed: false, status: 400 });
   });
 
+  it('permits one bounded binary managed-media upload', () => {
+    expect(
+      bizzbloxRouteDecision({
+        method: 'POST',
+        url: '/internal/bizzblox/v1/media:upload',
+        contentLength: String(50 * 1024 * 1024),
+      })
+    ).toEqual({ allowed: true });
+  });
+
   it.each([
+    ['GET', '/public/v1/integrations'],
     ['POST', '/public/v1/upload'],
     ['POST', '/public/v1/posts/validate'],
     ['POST', '/public/v1/posts'],

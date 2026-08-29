@@ -34,4 +34,16 @@ describe('BizzBLOX production image release workflow', () => {
     expect(workflow).not.toMatch(/uses:\s+[^\s]+@(?![0-9a-f]{40}(?:\s|$))/);
     expect(workflow).not.toContain('pull_request_target');
   });
+
+  it('rejects a detached revision that is not reachable from public main before running repository code', () => {
+    const workflow = readFileSync(workflowPath, 'utf8');
+    const checkout = workflow.indexOf('actions/checkout@');
+    const ancestry = workflow.indexOf('git merge-base --is-ancestor');
+    const install = workflow.indexOf('pnpm install --frozen-lockfile');
+
+    expect(workflow).toContain('persist-credentials: false');
+    expect(ancestry).toBeGreaterThan(checkout);
+    expect(install).toBeGreaterThan(ancestry);
+    expect(workflow).toContain('origin/main');
+  });
 });

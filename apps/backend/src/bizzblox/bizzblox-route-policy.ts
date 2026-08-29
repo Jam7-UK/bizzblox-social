@@ -44,6 +44,7 @@ const ROUTES = Object.freeze([
   ],
   ['POST', /^\/internal\/bizzblox\/v1\/publications:validate$/],
   ['POST', /^\/internal\/bizzblox\/v1\/publications$/],
+  ['POST', /^\/internal\/bizzblox\/v1\/media:upload$/],
   [
     'GET',
     new RegExp(
@@ -65,6 +66,7 @@ const ROUTES = Object.freeze([
 ] as const);
 
 const LOOPBACK_ROUTES = Object.freeze([
+  ['GET', /^\/public\/v1\/integrations$/],
   ['POST', /^\/public\/v1\/upload$/],
   ['POST', /^\/public\/v1\/posts\/validate$/],
   ['POST', /^\/public\/v1\/posts$/],
@@ -97,7 +99,10 @@ function routeMatches(
 }
 
 function bodyLimit(pathname: string): number {
-  if (pathname === '/public/v1/upload') {
+  if (
+    pathname === '/public/v1/upload' ||
+    pathname === '/internal/bizzblox/v1/media:upload'
+  ) {
     return LOOPBACK_UPLOAD_LIMIT_BYTES;
   }
   return pathname.startsWith('/internal/bizzblox/v1/') ||

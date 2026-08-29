@@ -29,6 +29,77 @@ function digestRequest(body: unknown, method: string, path: string): string {
 }
 
 describe('BizzBLOX service authentication guard', () => {
+  it('binds an exact binary media body and metadata to the signed claim', async () => {
+    const bytes = Buffer.from([1, 2, 3, 4]);
+    const checksumSha256 = createHash('sha256').update(bytes).digest('hex');
+    const path = '/internal/bizzblox/v1/media:upload';
+    const requestDigest = createHash('sha256')
+      .update(
+        JSON.stringify({
+          bodySha256: checksumSha256,
+          metadata: {
+            byteSize: bytes.byteLength,
+            checksumSha256,
+            contentType: 'image/png',
+            externalMediaId: `bbx_media_${'a'.repeat(48)}`,
+          },
+          method: 'POST',
+          path,
+        })
+      )
+      .digest('hex');
+    const verify = vi.fn<BizzbloxClaimVerifier['verify']>().mockResolvedValue({
+      audience: 'bizzblox-social',
+      connectorRevision: 7,
+      expiresAt: 1787860890,
+      issuedAt: 1787860800,
+      nonce: 'nonce_media_01J6DCG5GFV2X9PPYF4D8KPWYB',
+      operation: 'media.upload',
+      requestDigest,
+      tenantHandleHash,
+    });
+    const request: BizzbloxVerifiedRequest = {
+      body: bytes,
+      bizzbloxIam: {
+        accountId: '495599735993',
+        principalArn: 'arn:aws:iam::495599735993:role/BizzbloxSocialBridge',
+      },
+      headers: {
+        'content-type': 'image/png',
+        'x-bizzblox-media-byte-size': String(bytes.byteLength),
+        'x-bizzblox-media-external-id': `bbx_media_${'a'.repeat(48)}`,
+        'x-bizzblox-media-sha256': checksumSha256,
+        'x-bizzblox-operation-claim': 'signed-media-claim',
+        'x-bizzblox-tenant-credential': 'tenant-credential',
+        'x-bizzblox-tenant-handle': 'tenant_opaque_123',
+      },
+      method: 'POST',
+      originalUrl: path,
+    };
+    const guard = new BizzbloxAuthGuard(
+      { verify },
+      { consume: vi.fn().mockResolvedValue(true) },
+      {
+        verifyCredential: vi.fn().mockResolvedValue({
+          connectorRevision: 7,
+          credentialVersion: 3,
+          organizationId: 'postiz-org-1',
+        }),
+      },
+      {
+        accountId: '495599735993',
+        audience: 'bizzblox-social',
+        bridgePrincipalArn:
+          'arn:aws:iam::495599735993:role/BizzbloxSocialBridge',
+        clock: () => new Date('2026-08-27T20:00:00.000Z'),
+      }
+    );
+
+    await expect(guard.canActivate(executionContext(request))).resolves.toBe(
+      true
+    );
+    expect(request.bizzbloxAuth?.operation).toBe('media.upload');
+  });
   it('bootstraps a tenant only when IAM and the one-use signed claim agree', async () => {
     const verify = vi.fn<BizzbloxClaimVerifier['verify']>().mockResolvedValue({
       audience: 'bizzblox-social',

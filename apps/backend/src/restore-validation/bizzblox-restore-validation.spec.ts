@@ -20,15 +20,50 @@ describe('BizzBLOX restore validation', () => {
     expect(
       validateDatabaseRestoreV2({
         canaryVerified: true,
-        catalogDigest: DIGEST_A,
         connectionVerified: true,
+        expected: {
+          dataDigest: DIGEST_A,
+          migrationDigest: DIGEST_B,
+          rowCount: 42,
+        },
         failedMigrationCount: 0,
         kind: 'database',
-        migrationDigest: DIGEST_B,
-        rowCount: 42,
+        restored: {
+          dataDigest: DIGEST_A,
+          migrationDigest: DIGEST_B,
+          rowCount: 42,
+        },
         version: 2,
       })
     ).toBe(DATABASE_RESTORE_VALIDATION_RESULT_V2);
+  });
+
+  it.each([
+    ['missing manifest', undefined],
+    [
+      'customer-row loss',
+      { dataDigest: DIGEST_A, migrationDigest: DIGEST_B, rowCount: 1 },
+    ],
+    [
+      'catalog drift',
+      { dataDigest: DIGEST_B, migrationDigest: DIGEST_B, rowCount: 42 },
+    ],
+  ])('rejects v2 database evidence with %s', (_label, restored) => {
+    expect(() =>
+      validateDatabaseRestoreV2({
+        canaryVerified: true,
+        connectionVerified: true,
+        expected: {
+          dataDigest: DIGEST_A,
+          migrationDigest: DIGEST_B,
+          rowCount: 42,
+        },
+        failedMigrationCount: 0,
+        kind: 'database',
+        ...(restored === undefined ? {} : { restored }),
+        version: 2,
+      })
+    ).toThrow(RestoreValidationError);
   });
 
   it('accepts v2 media evidence only with the durable canary and complete checksum proof', () => {
@@ -36,6 +71,11 @@ describe('BizzBLOX restore validation', () => {
       validateMediaRestoreV2({
         canaryVerified: true,
         checksumFailureCount: 0,
+        expected: {
+          byteCount: 2048,
+          inventoryDigest: DIGEST_A,
+          objectCount: 2,
+        },
         kind: 'media',
         restored: {
           byteCount: 2048,
@@ -46,6 +86,34 @@ describe('BizzBLOX restore validation', () => {
         version: 2,
       })
     ).toBe(MEDIA_RESTORE_VALIDATION_RESULT_V2);
+  });
+
+  it.each([
+    ['missing manifest', undefined],
+    [
+      'empty customer-media restore',
+      {
+        byteCount: 0,
+        inventoryDigest: DIGEST_B,
+        objectCount: 0,
+        verifiedObjectCount: 0,
+      },
+    ],
+  ])('rejects v2 media evidence with %s', (_label, restored) => {
+    expect(() =>
+      validateMediaRestoreV2({
+        canaryVerified: true,
+        checksumFailureCount: 0,
+        expected: {
+          byteCount: 2048,
+          inventoryDigest: DIGEST_A,
+          objectCount: 2,
+        },
+        kind: 'media',
+        ...(restored === undefined ? {} : { restored }),
+        version: 2,
+      })
+    ).toThrow(RestoreValidationError);
   });
 
   it('accepts only an exact, connected database restore with complete migrations', () => {

@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { Inject, Injectable } from '@nestjs/common';
 
 import {
@@ -17,9 +19,10 @@ export const BIZZBLOX_PUBLICATION_STORE = Symbol('BIZZBLOX_PUBLICATION_STORE');
 export const BIZZBLOX_CHANNEL_ACCESS = Symbol('BIZZBLOX_CHANNEL_ACCESS');
 export const BIZZBLOX_POSTIZ_CLIENTS = Symbol('BIZZBLOX_POSTIZ_CLIENTS');
 export const BIZZBLOX_PUBLICATION_IDS = Symbol('BIZZBLOX_PUBLICATION_IDS');
+export const BIZZBLOX_MEDIA_STORE = Symbol('BIZZBLOX_MEDIA_STORE');
 
 type PublicationMedia = Readonly<{
-  fileVersionId: string;
+  mediaHandle: string;
   checksumSha256: string;
   altText?: string;
 }>;
@@ -142,6 +145,27 @@ export interface BizzbloxPublicationStore {
 
 export interface BizzbloxPostizClientFactory {
   forOrganization(organizationId: string): Promise<PostizAgentClient>;
+}
+
+export type BizzbloxMediaRecord = Readonly<{
+  organizationId: string;
+  externalMediaId: string;
+  checksumSha256: string;
+  postizMediaId: string;
+  postizMediaPath: string;
+}>;
+
+export interface BizzbloxMediaStore {
+  reserve(candidate: BizzbloxMediaRecord): Promise<
+    Readonly<{
+      outcome: 'created' | 'existing' | 'conflict';
+      record: BizzbloxMediaRecord;
+    }>
+  >;
+  resolve(
+    organizationId: string,
+    mediaHandles: readonly string[]
+  ): Promise<readonly BizzbloxMediaRecord[]>;
 }
 
 export interface BizzbloxPublicationIds {
@@ -356,9 +380,58 @@ export class BizzbloxPublicationsService {
     private readonly channels: BizzbloxChannelAccess,
     @Inject(BIZZBLOX_POSTIZ_CLIENTS)
     private readonly clients: BizzbloxPostizClientFactory,
+    @Inject(BIZZBLOX_MEDIA_STORE)
+    private readonly media: BizzbloxMediaStore,
     @Inject(BIZZBLOX_PUBLICATION_IDS)
     private readonly ids: BizzbloxPublicationIds
   ) {}
+
+  async uploadMedia(
+    organizationId: string,
+    input: Readonly<{
+      externalMediaId: string;
+      checksumSha256: string;
+      contentType: string;
+      bytes: Uint8Array;
+    }>
+  ) {
+    if (
+      !/^bbx_media_[a-f0-9]{48}$/.test(input.externalMediaId) ||
+      !/^[a-f0-9]{64}$/.test(input.checksumSha256) ||
+      !/^[\w.+-]+\/[\w.+-]+(?:;[\x20-\x7e]+)?$/.test(input.contentType) ||
+      input.bytes.byteLength < 1 ||
+      input.bytes.byteLength > MAX_SOCIAL_MEDIA_UPLOAD_BYTES ||
+      createHash('sha256').update(input.bytes).digest('hex') !==
+        input.checksumSha256
+    ) {
+      throw new BizzbloxPublicationInputError('Invalid social media upload.');
+    }
+    const client = await this.clients.forOrganization(organizationId);
+    const uploaded = await client.upload({
+      bytes: input.bytes,
+      contentType: input.contentType,
+      filename: input.externalMediaId,
+    });
+    const reserved = await this.media.reserve({
+      organizationId,
+      externalMediaId: input.externalMediaId,
+      checksumSha256: input.checksumSha256,
+      postizMediaId: uploaded.id,
+      postizMediaPath: uploaded.path,
+    });
+    if (
+      reserved.outcome === 'conflict' ||
+      reserved.record.checksumSha256 !== input.checksumSha256
+    ) {
+      throw new BizzbloxPublicationInputError(
+        'Social media identity is already bound to different bytes.'
+      );
+    }
+    return Object.freeze({
+      mediaHandle: input.externalMediaId,
+      checksumSha256: input.checksumSha256,
+    });
+  }
 
   private async prepare(
     organizationId: string,
@@ -409,11 +482,43 @@ export class BizzbloxPublicationsService {
         (segment) =>
           segment.text.length > 100_000 ||
           segment.media.length > 20 ||
-          segment.media.length > 0
+          segment.media.some(
+            (media) =>
+              !/^bbx_media_[a-f0-9]{48}$/.test(media.mediaHandle) ||
+              !/^[a-f0-9]{64}$/.test(media.checksumSha256) ||
+              (media.altText?.length ?? 0) > 2_000
+          )
       )
     ) {
       throw new BizzbloxPublicationInputError(
-        'Publication media must be prepared before scheduling.'
+        'Publication content or media is invalid.'
+      );
+    }
+    const mediaHandles = [
+      ...new Set(
+        segments.flatMap((segment) =>
+          segment.media.map((media) => media.mediaHandle)
+        )
+      ),
+    ];
+    const storedMedia = await this.media.resolve(organizationId, mediaHandles);
+    const mediaByHandle = new Map(
+      storedMedia.map((record) => [record.externalMediaId, record])
+    );
+    if (
+      mediaHandles.length !== storedMedia.length ||
+      segments.some((segment) =>
+        segment.media.some(
+          (media) =>
+            mediaByHandle.get(media.mediaHandle)?.organizationId !==
+              organizationId ||
+            mediaByHandle.get(media.mediaHandle)?.checksumSha256 !==
+              media.checksumSha256
+        )
+      )
+    ) {
+      throw new BizzbloxPublicationInputError(
+        'Publication media is unavailable.'
       );
     }
     const settings = safeSettings(override?.providerSettingsJson);
@@ -431,7 +536,10 @@ export class BizzbloxPublicationsService {
           value: segments.map((segment, index) => ({
             ...(stableIds ? { id: stableIds.postIds[index] } : {}),
             content: segment.text,
-            image: [],
+            image: segment.media.map((media) => {
+              const stored = mediaByHandle.get(media.mediaHandle)!;
+              return { id: stored.postizMediaId, path: stored.postizMediaPath };
+            }),
           })),
         },
       ],
@@ -793,3 +901,4 @@ export class BizzbloxPublicationsService {
     }
   }
 }
+const MAX_SOCIAL_MEDIA_UPLOAD_BYTES = 10 * 1024 * 1024;

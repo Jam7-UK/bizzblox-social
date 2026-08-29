@@ -47,6 +47,7 @@ model Organization {
   bizzbloxTenant       BizzbloxTenant?
   bizzbloxChannels     BizzbloxChannel[]
   bizzbloxPublications BizzbloxPublication[]
+  bizzbloxMediaUploads BizzbloxMediaUpload[]
 
   @@index([apiKey])
   @@index([streakSince])
@@ -115,6 +116,21 @@ model BizzbloxPublication {
   @@index([organizationId, state])
   @@index([connectorRevision])
   @@index([updatedAt])
+}
+
+model BizzbloxMediaUpload {
+  id              String       @id @default(uuid())
+  organizationId  String
+  externalMediaId String
+  checksumSha256  String
+  postizMediaId   String
+  postizMediaPath String
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, externalMediaId])
+  @@index([organizationId, createdAt])
 }
 
 model Tags {

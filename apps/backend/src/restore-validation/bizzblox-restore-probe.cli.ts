@@ -3,10 +3,12 @@ import type { Readable } from 'node:stream';
 import {
   collectDatabaseRestoreSnapshot,
   prismaRestoreDatabaseQueryClient,
+  readDatabaseRestoreManifest,
   type RestoreDatabaseKind,
 } from './bizzblox-database-restore-probe';
 import {
   collectMediaRestoreSnapshot,
+  readMediaRestoreManifest,
   s3RestoreMediaCommandClient,
 } from './bizzblox-media-restore-probe';
 import type {
@@ -76,13 +78,22 @@ function productionDependencies(
   environment: Readonly<Record<string, string | undefined>>
 ): RestoreProbeDependencies {
   return Object.freeze({
-    database: (databaseKind: RestoreDatabaseKind) =>
-      collectDatabaseRestoreSnapshot(
+    database: async (databaseKind: RestoreDatabaseKind) => {
+      const restored = await collectDatabaseRestoreSnapshot(
         databaseKind,
         prismaRestoreDatabaseQueryClient(environment)
-      ),
-    media: (bucket: string) =>
-      collectMediaRestoreSnapshot(bucket, s3RestoreMediaCommandClient()),
+      );
+      const expected = await readDatabaseRestoreManifest(
+        prismaRestoreDatabaseQueryClient(environment)
+      );
+      return Object.freeze({ ...restored, expected });
+    },
+    media: async (bucket: string) => {
+      const client = s3RestoreMediaCommandClient();
+      const restored = await collectMediaRestoreSnapshot(bucket, client);
+      const expected = await readMediaRestoreManifest(bucket, client);
+      return Object.freeze({ ...restored, expected });
+    },
   });
 }
 
@@ -112,6 +123,7 @@ export async function runRestoreProbeCli(
         return validateMediaRestoreV2({
           canaryVerified: restored.canaryVerified,
           checksumFailureCount: 0,
+          expected: restored.expected,
           kind: 'media',
           restored: restoredEvidence,
           version: 2,
@@ -130,12 +142,15 @@ export async function runRestoreProbeCli(
     if (request.contract === 'v2') {
       return validateDatabaseRestoreV2({
         canaryVerified: restored.canaryVerified,
-        catalogDigest: restored.dataDigest,
         connectionVerified: restored.connectionVerified,
+        expected: restored.expected,
         failedMigrationCount: restored.failedMigrationCount,
         kind: 'database',
-        migrationDigest: restored.migrationDigest,
-        rowCount: restored.rowCount,
+        restored: {
+          dataDigest: restored.dataDigest,
+          migrationDigest: restored.migrationDigest,
+          rowCount: restored.rowCount,
+        },
         version: 2,
       });
     }

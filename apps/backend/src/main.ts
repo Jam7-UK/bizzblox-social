@@ -8,7 +8,7 @@ import compression from 'compression';
 import type { NextFunction, Request, Response } from 'express';
 
 import { loadSwagger } from '@gitroom/helpers/swagger/load.swagger';
-import { json } from 'express';
+import { json, raw } from 'express';
 import { Runtime } from '@temporalio/worker';
 Runtime.install({ shutdownSignals: [] });
 
@@ -55,6 +55,10 @@ async function start() {
   });
 
   if (process.env.BIZZBLOX_SERVICE_MODE === '1') {
+    app.use(
+      '/internal/bizzblox/v1/media:upload',
+      raw({ limit: '10mb', type: '*/*' })
+    );
     app.use((request: Request, response: Response, next: NextFunction) =>
       bizzbloxRoutePolicy(request, response, next)
     );

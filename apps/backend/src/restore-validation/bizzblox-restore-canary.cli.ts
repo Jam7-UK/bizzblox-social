@@ -5,11 +5,21 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 
-import type { RestoreDatabaseKind } from './bizzblox-database-restore-probe';
+import {
+  collectDatabaseRestoreSnapshot,
+  prismaRestoreDatabaseQueryClient,
+  type RestoreDatabaseKind,
+} from './bizzblox-database-restore-probe';
+import {
+  collectMediaRestoreSnapshot,
+  s3RestoreMediaCommandClient,
+} from './bizzblox-media-restore-probe';
 import { restoreDatabaseUrlFromEnvironment } from './bizzblox-restore-database-config';
 import {
   persistDatabaseRestoreCanary,
+  persistDatabaseRestoreManifest,
   persistMediaRestoreCanary,
+  persistMediaRestoreManifest,
 } from './bizzblox-restore-canary-bootstrap';
 import { RestoreProbeError } from './bizzblox-restore-probe';
 
@@ -41,17 +51,25 @@ function productionDependencies(
   environment: Readonly<Record<string, string | undefined>>
 ): RestoreCanaryDependencies {
   return Object.freeze({
-    database: async () => {
+    database: async (databaseKind) => {
       const client = new PrismaClient({
         datasourceUrl: restoreDatabaseUrlFromEnvironment(environment),
       });
       try {
         await client.$connect();
-        return await persistDatabaseRestoreCanary({
+        const adapter = {
           execute: (statement: string) => client.$executeRawUnsafe(statement),
           query: (statement: string) =>
             client.$queryRawUnsafe<unknown[]>(statement),
-        });
+        };
+        await persistDatabaseRestoreCanary(adapter);
+        await client.$disconnect();
+        const restored = await collectDatabaseRestoreSnapshot(
+          databaseKind,
+          prismaRestoreDatabaseQueryClient(environment)
+        );
+        await client.$connect();
+        return await persistDatabaseRestoreManifest(adapter, restored);
       } catch {
         return fail();
       } finally {
@@ -62,14 +80,20 @@ function productionDependencies(
         }
       }
     },
-    media: (config) => {
+    media: async (config) => {
       const client = new S3Client({ region: 'eu-west-2' });
-      return persistMediaRestoreCanary(config, {
+      const canaryClient = {
         send: (command: PutObjectCommand | GetObjectAttributesCommand) =>
           command instanceof PutObjectCommand
             ? client.send(command)
             : client.send(command),
-      });
+      };
+      await persistMediaRestoreCanary(config, canaryClient);
+      const restored = await collectMediaRestoreSnapshot(
+        config.bucket,
+        s3RestoreMediaCommandClient()
+      );
+      return persistMediaRestoreManifest(config, restored, canaryClient);
     },
   });
 }

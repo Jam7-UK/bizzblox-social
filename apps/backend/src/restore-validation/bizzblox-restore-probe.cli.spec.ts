@@ -17,6 +17,11 @@ const databaseSnapshot = Object.freeze({
   failedMigrationCount: 0,
   migrationDigest: 'b'.repeat(64),
   rowCount: 42,
+  expected: Object.freeze({
+    dataDigest: 'a'.repeat(64),
+    migrationDigest: 'b'.repeat(64),
+    rowCount: 42,
+  }),
 });
 
 const mediaSnapshot = Object.freeze({
@@ -25,6 +30,11 @@ const mediaSnapshot = Object.freeze({
   inventoryDigest: 'a'.repeat(64),
   objectCount: 2,
   verifiedObjectCount: 2,
+  expected: Object.freeze({
+    byteCount: 2048,
+    inventoryDigest: 'a'.repeat(64),
+    objectCount: 2,
+  }),
 });
 
 function input(value: unknown): Readable {
@@ -50,7 +60,7 @@ describe('BizzBLOX restore probe CLI', () => {
     }
   );
 
-  it('validates restored media under the v2 canary contract without a manifest', async () => {
+  it('validates restored media under the v2 recovery-point manifest contract', async () => {
     const media = vi.fn().mockResolvedValue(mediaSnapshot);
     await expect(
       runRestoreProbeCli(
@@ -60,6 +70,21 @@ describe('BizzBLOX restore probe CLI', () => {
         { database: vi.fn(), media }
       )
     ).resolves.toBe(MEDIA_RESTORE_VALIDATION_RESULT_V2);
+  });
+
+  it('fails closed when a v2 adapter does not return an anchored manifest', async () => {
+    const database = vi.fn().mockResolvedValue({
+      ...databaseSnapshot,
+      expected: undefined,
+    });
+    await expect(
+      runRestoreProbeCli(
+        ['--kind', 'application', '--contract', 'v2'],
+        input(''),
+        {},
+        { database, media: vi.fn() }
+      )
+    ).rejects.toBeInstanceOf(RestoreValidationError);
   });
 
   it.each(['application', 'temporal'] as const)(

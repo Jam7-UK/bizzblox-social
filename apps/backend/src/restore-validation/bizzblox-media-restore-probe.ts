@@ -1,4 +1,5 @@
 import {
+  GetObjectCommand,
   GetObjectAttributesCommand,
   ListObjectsV2Command,
   S3Client,
@@ -11,6 +12,7 @@ import {
 } from './bizzblox-restore-probe';
 import {
   RESTORE_CANARY_MEDIA_KEY,
+  RESTORE_MANIFEST_MEDIA_KEY,
   verifyMediaRestoreCanary,
 } from './bizzblox-restore-canary';
 
@@ -21,7 +23,10 @@ const ATTRIBUTE_CONCURRENCY = 16;
 
 export type RestoreMediaCommandClient = Readonly<{
   send: (
-    command: ListObjectsV2Command | GetObjectAttributesCommand
+    command:
+      | ListObjectsV2Command
+      | GetObjectAttributesCommand
+      | GetObjectCommand
   ) => Promise<unknown>;
 }>;
 
@@ -80,6 +85,77 @@ function optionalToken(value: unknown): string | undefined {
   if (typeof value !== 'string' || value.length === 0 || value.length > 2_048)
     return fail();
   return value;
+}
+
+async function boundedBody(value: unknown): Promise<string> {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !(Symbol.asyncIterator in value)
+  ) {
+    return fail();
+  }
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of value as AsyncIterable<unknown>) {
+    const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+    total += bytes.byteLength;
+    if (total > 4 * 1024) return fail();
+    chunks.push(bytes);
+  }
+  if (total === 0) return fail();
+  return Buffer.concat(chunks, total).toString('utf8');
+}
+
+function manifest(value: unknown) {
+  const candidate = record(value);
+  const keys = Object.keys(candidate).sort();
+  if (
+    keys.join(',') !== 'byteCount,inventoryDigest,objectCount' ||
+    !Number.isSafeInteger(candidate.byteCount) ||
+    (candidate.byteCount as number) < 0 ||
+    !/^[a-f0-9]{64}$/.test(String(candidate.inventoryDigest ?? '')) ||
+    !Number.isSafeInteger(candidate.objectCount) ||
+    (candidate.objectCount as number) < 0
+  ) {
+    return fail();
+  }
+  return Object.freeze({
+    byteCount: candidate.byteCount as number,
+    inventoryDigest: candidate.inventoryDigest as string,
+    objectCount: candidate.objectCount as number,
+  });
+}
+
+/** Reads the strict aggregate manifest that was included in the recovery point. */
+export async function readMediaRestoreManifest(
+  restoredBucket: string,
+  client: RestoreMediaCommandClient
+) {
+  try {
+    const bucket = bucketName(restoredBucket);
+    const response = record(
+      await client.send(
+        new GetObjectCommand({
+          Bucket: bucket,
+          Key: RESTORE_MANIFEST_MEDIA_KEY,
+        })
+      )
+    );
+    if (
+      !Number.isSafeInteger(response.ContentLength) ||
+      (response.ContentLength as number) < 1 ||
+      (response.ContentLength as number) > 4 * 1024
+    ) {
+      return fail();
+    }
+    const body = await boundedBody(response.Body);
+    if (Buffer.byteLength(body, 'utf8') !== response.ContentLength)
+      return fail();
+    return manifest(JSON.parse(body) as unknown);
+  } catch {
+    return fail();
+  }
 }
 
 async function listObjects(
@@ -204,9 +280,15 @@ export async function collectMediaRestoreSnapshot(
 export function s3RestoreMediaCommandClient(): RestoreMediaCommandClient {
   const client = new S3Client({ region: 'eu-west-2' });
   return Object.freeze({
-    send: (command: ListObjectsV2Command | GetObjectAttributesCommand) =>
-      command instanceof ListObjectsV2Command
-        ? client.send(command)
-        : client.send(command),
+    send: (
+      command:
+        | ListObjectsV2Command
+        | GetObjectAttributesCommand
+        | GetObjectCommand
+    ) => {
+      if (command instanceof ListObjectsV2Command) return client.send(command);
+      if (command instanceof GetObjectCommand) return client.send(command);
+      return client.send(command);
+    },
   });
 }

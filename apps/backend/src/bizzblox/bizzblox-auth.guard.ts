@@ -55,6 +55,7 @@ export type BizzbloxVerifiedRequest = {
   originalUrl: string;
   headers: Readonly<Record<string, string | readonly string[] | undefined>>;
   body: unknown;
+  rawBody?: Buffer;
   bizzbloxIam?: Readonly<{ accountId: string; principalArn: string }>;
   bizzbloxAuth?: Readonly<{
     connectorRevision: number;
@@ -150,6 +151,9 @@ function operationFor(method: string, path: string): string | null {
   if (method === 'POST' && path === '/internal/bizzblox/v1/publications') {
     return 'publication.schedule';
   }
+  if (method === 'POST' && path === '/internal/bizzblox/v1/media:upload') {
+    return 'media.upload';
+  }
   if (
     method === 'GET' &&
     /^\/internal\/bizzblox\/v1\/publications\/by-external\/[^/?]+\/analytics$/.test(
@@ -223,6 +227,43 @@ function requestBinding(request: BizzbloxVerifiedRequest): Readonly<{
   if (operation !== 'tenant.ensure' && !credential) {
     throw new UnauthorizedException();
   }
+  let digestBody: unknown = request.body ?? null;
+  if (operation === 'media.upload') {
+    const bytes = Buffer.isBuffer(request.body)
+      ? request.body
+      : Buffer.isBuffer(request.rawBody)
+      ? request.rawBody
+      : null;
+    const externalMediaId = request.headers['x-bizzblox-media-external-id'];
+    const checksumSha256 = request.headers['x-bizzblox-media-sha256'];
+    const byteSize = request.headers['x-bizzblox-media-byte-size'];
+    const contentType = request.headers['content-type'];
+    if (
+      !bytes ||
+      bytes.byteLength < 1 ||
+      bytes.byteLength > MAX_SOCIAL_MEDIA_UPLOAD_BYTES ||
+      typeof externalMediaId !== 'string' ||
+      !/^bbx_media_[a-f0-9]{48}$/.test(externalMediaId) ||
+      typeof checksumSha256 !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(checksumSha256) ||
+      typeof byteSize !== 'string' ||
+      String(bytes.byteLength) !== byteSize ||
+      typeof contentType !== 'string' ||
+      contentType.length > 200 ||
+      createHash('sha256').update(bytes).digest('hex') !== checksumSha256
+    ) {
+      throw new UnauthorizedException();
+    }
+    digestBody = {
+      bodySha256: checksumSha256,
+      metadata: {
+        externalMediaId,
+        checksumSha256,
+        contentType,
+        byteSize: bytes.byteLength,
+      },
+    };
+  }
   if (operation === 'tenant.read' || operation === 'tenant.cleanup') {
     const pathParts = request.originalUrl.split('/');
     const encodedPathHandle =
@@ -239,7 +280,9 @@ function requestBinding(request: BizzbloxVerifiedRequest): Readonly<{
     credential,
     digest: sha256(
       canonicalJson({
-        body: request.body ?? null,
+        ...(operation === 'media.upload'
+          ? (digestBody as Record<string, unknown>)
+          : { body: digestBody }),
         method: request.method.toUpperCase(),
         path: request.originalUrl,
       })
@@ -324,3 +367,4 @@ export class BizzbloxAuthGuard implements CanActivate {
     }
   }
 }
+const MAX_SOCIAL_MEDIA_UPLOAD_BYTES = 10 * 1024 * 1024;

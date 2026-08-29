@@ -9,6 +9,8 @@ export const RESTORE_CANARY_CHECKSUM_BASE64 =
 export const RESTORE_CANARY_DATABASE_ID = 'bizzblox-social-restore-canary-v1';
 export const RESTORE_CANARY_MEDIA_KEY =
   'bizzblox-validation/restore-canary-v1.json';
+export const RESTORE_MANIFEST_MEDIA_KEY =
+  'bizzblox-validation/restore-manifest-v2.json';
 
 function fail(): never {
   throw new RestoreProbeError();

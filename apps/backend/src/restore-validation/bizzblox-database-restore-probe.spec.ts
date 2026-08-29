@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { RestoreProbeError } from './bizzblox-restore-probe';
 import {
   collectDatabaseRestoreSnapshot,
+  readDatabaseRestoreManifest,
   type RestoreDatabaseQueryClient,
 } from './bizzblox-database-restore-probe';
 
@@ -70,6 +71,44 @@ function queryClient(options?: Readonly<{ failCount?: boolean }>) {
 }
 
 describe('BizzBLOX database restore probe adapter', () => {
+  it('reads only the strict value-free manifest included in the restored database', async () => {
+    const connect = vi.fn().mockResolvedValue(undefined);
+    const disconnect = vi.fn().mockResolvedValue(undefined);
+    const query = vi.fn().mockResolvedValue([
+      {
+        expectedManifest: {
+          dataDigest: 'a'.repeat(64),
+          migrationDigest: 'b'.repeat(64),
+          rowCount: 42,
+        },
+      },
+    ]);
+    await expect(
+      readDatabaseRestoreManifest({ connect, disconnect, query })
+    ).resolves.toEqual({
+      dataDigest: 'a'.repeat(64),
+      migrationDigest: 'b'.repeat(64),
+      rowCount: 42,
+    });
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining('"expected_manifest" AS "expectedManifest"')
+    );
+    expect(disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed when the restored database has no anchored manifest', async () => {
+    const connect = vi.fn().mockResolvedValue(undefined);
+    const disconnect = vi.fn().mockResolvedValue(undefined);
+    await expect(
+      readDatabaseRestoreManifest({
+        connect,
+        disconnect,
+        query: vi.fn().mockResolvedValue([{ expectedManifest: null }]),
+      })
+    ).rejects.toBeInstanceOf(RestoreProbeError);
+    expect(disconnect).toHaveBeenCalledTimes(1);
+  });
+
   it('collects application schema, migration, and table-cardinality evidence', async () => {
     const { client, connect, disconnect, query } = queryClient();
 

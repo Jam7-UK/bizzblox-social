@@ -126,6 +126,14 @@ describe('managed integration token persistence', () => {
       'refresh-secret'
     );
 
+    expect(integrationModel.integration.findMany).toHaveBeenCalledWith({
+      where: {
+        id: { not: 'integration_current' },
+        organizationId: 'organization_123',
+        rootInternalId: 'root-account',
+      },
+      select: { id: true, organizationId: true },
+    });
     expect(integrationModel.integration.updateMany).not.toHaveBeenCalled();
     expect(integrationModel.integration.update.mock.calls).toEqual([
       [
@@ -153,6 +161,56 @@ describe('managed integration token persistence', () => {
     expect(
       JSON.stringify(integrationModel.integration.update.mock.calls)
     ).not.toContain('refresh-secret');
+  });
+
+  it('rebinds provider envelopes when a competing first connect wins the row id', async () => {
+    const integrationModel = {
+      integration: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        upsert: vi.fn().mockResolvedValue({ id: 'integration_winner' }),
+        update: vi.fn().mockResolvedValue({ id: 'integration_winner' }),
+      },
+    };
+    const tokens = {
+      open: vi.fn(),
+      seal: vi
+        .fn()
+        .mockImplementation(
+          async (context) =>
+            `sealed:${context.integrationId}:${context.purpose}`
+        ),
+    };
+    const unused = {} as never;
+    const repository = new IntegrationRepository(
+      { model: integrationModel } as never,
+      unused,
+      unused,
+      unused,
+      unused,
+      unused,
+      tokens
+    );
+
+    await repository.createOrUpdateIntegration(
+      undefined,
+      false,
+      'organization_123',
+      'Channel',
+      undefined,
+      'social',
+      'provider-account-456',
+      'linkedin',
+      'access-secret',
+      'refresh-secret'
+    );
+
+    expect(integrationModel.integration.update).toHaveBeenCalledWith({
+      where: { id: 'integration_winner' },
+      data: {
+        token: 'sealed:integration_winner:access',
+        refreshToken: 'sealed:integration_winner:refresh',
+      },
+    });
   });
 
   it('seals provider tokens written during account selection', async () => {

@@ -397,7 +397,7 @@ export class IntegrationRepository {
           ]),
         }
       : {};
-    const upsert = await this._integration.model.integration.upsert({
+    let upsert = await this._integration.model.integration.upsert({
       where: {
         organizationId_internalId: {
           internalId,
@@ -453,6 +453,28 @@ export class IntegrationRepository {
       },
     });
 
+    // A competing first connection may win the unique organization/account
+    // row after our initial lookup. Rebind the envelopes to the row Prisma
+    // actually returned before any caller can use them.
+    if (upsert.id !== integrationId) {
+      const reboundToken = await this.sealProviderToken(
+        org,
+        upsert.id,
+        'access',
+        token
+      );
+      const reboundRefreshToken = refreshToken
+        ? await this.sealProviderToken(org, upsert.id, 'refresh', refreshToken)
+        : '';
+      upsert = await this._integration.model.integration.update({
+        where: { id: upsert.id },
+        data: {
+          token: reboundToken,
+          refreshToken: reboundRefreshToken,
+        },
+      });
+    }
+
     if (oneTimeToken) {
       const rootId =
         (
@@ -467,6 +489,7 @@ export class IntegrationRepository {
       const siblings = await this._integration.model.integration.findMany({
         where: {
           id: { not: upsert.id },
+          organizationId: org,
           rootInternalId: rootId,
         },
         select: { id: true, organizationId: true },

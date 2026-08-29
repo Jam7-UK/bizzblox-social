@@ -1049,6 +1049,9 @@ importers:
       parse5:
         specifier: ^6.0.1
         version: 6.0.1
+      prisma:
+        specifier: 6.5.0
+        version: 6.5.0(typescript@5.9.3)
       reflect-metadata:
         specifier: ^0.2.2
         version: 0.2.2
@@ -38172,7 +38175,6 @@ snapshots:
       typescript: 5.9.3
     transitivePeerDependencies:
       - supports-color
-    optional: true
 
   prismjs@1.27.0: {}
 

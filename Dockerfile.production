@@ -32,7 +32,7 @@ RUN test "${#SOURCE_REVISION}" = 40 \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --system --gid 10001 bizzblox \
  && useradd --system --uid 10001 --gid 10001 --home-dir /app --shell /usr/sbin/nologin bizzblox \
- && mkdir -p /app/apps/backend /app/apps/orchestrator /tmp \
+ && mkdir -p /app/apps/backend /app/apps/orchestrator /app/prisma /app/scripts /tmp \
  && chown -R 10001:10001 /app /tmp
 
 WORKDIR /app
@@ -40,13 +40,15 @@ COPY --from=build --chown=10001:10001 /runtime/node_modules ./node_modules
 COPY --from=build --chown=10001:10001 /app/node_modules/.prisma/client ./node_modules/.prisma/client
 COPY --from=build --chown=10001:10001 /app/apps/backend/dist ./apps/backend/dist
 COPY --from=build --chown=10001:10001 /app/apps/orchestrator/dist ./apps/orchestrator/dist
+COPY --from=build --chown=10001:10001 /app/libraries/nestjs-libraries/src/database/prisma/schema.prisma ./prisma/schema.prisma
+COPY --from=build --chown=10001:10001 /app/scripts/bizzblox-managed-runtime-entry.mjs ./scripts/bizzblox-managed-runtime-entry.mjs
 
 ENV NODE_ENV=production
 USER 10001:10001
 ENTRYPOINT ["/usr/bin/tini", "--"]
 
 FROM runtime AS api
-CMD ["node", "apps/backend/dist/apps/backend/src/main.js"]
+CMD ["node", "scripts/bizzblox-managed-runtime-entry.mjs", "api"]
 
 FROM runtime AS orchestrator
-CMD ["node", "apps/orchestrator/dist/apps/orchestrator/src/main.js"]
+CMD ["node", "scripts/bizzblox-managed-runtime-entry.mjs", "orchestrator"]

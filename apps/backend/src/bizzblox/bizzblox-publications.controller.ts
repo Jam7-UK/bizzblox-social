@@ -33,6 +33,31 @@ export class BizzbloxPublicationsController {
     return authority;
   }
 
+  @Post('/media:upload')
+  async uploadMedia(@Req() request: BizzbloxVerifiedRequest) {
+    const authority = this.authority(request, 'media.upload');
+    const bytes = Buffer.isBuffer(request.body)
+      ? request.body
+      : request.rawBody;
+    const externalMediaId = request.headers['x-bizzblox-media-external-id'];
+    const checksumSha256 = request.headers['x-bizzblox-media-sha256'];
+    const contentType = request.headers['content-type'];
+    if (
+      !bytes ||
+      typeof externalMediaId !== 'string' ||
+      typeof checksumSha256 !== 'string' ||
+      typeof contentType !== 'string'
+    ) {
+      throw new UnauthorizedException();
+    }
+    return await this.publications.uploadMedia(authority.organizationId, {
+      externalMediaId,
+      checksumSha256,
+      contentType,
+      bytes,
+    });
+  }
+
   @Post('/publications:validate')
   async validate(
     @Req() request: BizzbloxVerifiedRequest,

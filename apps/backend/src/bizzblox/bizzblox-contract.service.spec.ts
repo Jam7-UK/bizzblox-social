@@ -38,6 +38,8 @@ function setup() {
     triggerIntegrationTool: vi.fn().mockResolvedValue({
       organizations: [{ id: 'provider-page-1', name: 'Jam 7' }],
       access_token: 'must-never-leak',
+      sessionToken: 'must-never-leak-either',
+      nested: { clientSecret: 'also-private', jwt: 'private-jwt' },
     }),
   } as unknown as PostizAgentClient;
   const stored = {
@@ -168,6 +170,8 @@ describe('BizzBLOX live social contracts', () => {
       output: {
         organizations: [{ id: 'provider-page-1', name: 'Jam 7' }],
         access_token: '[redacted]',
+        sessionToken: '[redacted]',
+        nested: { clientSecret: '[redacted]', jwt: '[redacted]' },
       },
     });
   });

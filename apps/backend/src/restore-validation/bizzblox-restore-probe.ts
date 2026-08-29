@@ -38,6 +38,11 @@ export type DatabaseRestoreSnapshot = Readonly<{
   failedMigrationCount: number;
   migrationDigest: string;
   rowCount: number;
+  expected?: Readonly<{
+    dataDigest: string;
+    migrationDigest: string;
+    rowCount: number;
+  }>;
 }>;
 
 type MediaObjectProbe = Readonly<{
@@ -52,6 +57,11 @@ export type MediaRestoreSnapshot = Readonly<{
   inventoryDigest: string;
   objectCount: number;
   verifiedObjectCount: number;
+  expected?: Readonly<{
+    byteCount: number;
+    inventoryDigest: string;
+    objectCount: number;
+  }>;
 }>;
 
 export class RestoreProbeError extends Error {

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 
 import {
   PostizAgentError,
@@ -10,6 +11,7 @@ import {
   type BizzbloxChannelRecord,
   type BizzbloxPublicationRecord,
   type BizzbloxPublicationStore,
+  type BizzbloxMediaStore,
 } from './bizzblox-publications.service';
 
 const ORGANIZATION_ID = 'postiz-org-1';
@@ -154,6 +156,7 @@ function memoryStore() {
 
 function service(input?: {
   agent?: PostizAgentClient;
+  media?: BizzbloxMediaStore;
   store?: BizzbloxPublicationStore;
 }) {
   const agent = input?.agent ?? client();
@@ -175,6 +178,10 @@ function service(input?: {
         ),
       },
       { forOrganization: vi.fn(async () => agent) },
+      input?.media ?? {
+        reserve: vi.fn(),
+        resolve: vi.fn().mockResolvedValue([]),
+      },
       {
         randomId: vi
           .fn()
@@ -187,6 +194,96 @@ function service(input?: {
 }
 
 describe('BizzBLOX publication service', () => {
+  it('uploads checksum-bound media once and schedules only its exact tenant handle', async () => {
+    const checksumSha256 =
+      '9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a';
+    const handle = `bbx_media_${'a'.repeat(48)}`;
+    const media: BizzbloxMediaStore = {
+      reserve: vi.fn().mockResolvedValue({
+        outcome: 'created',
+        record: {
+          organizationId: ORGANIZATION_ID,
+          externalMediaId: handle,
+          checksumSha256,
+          postizMediaId: 'postiz-media-1',
+          postizMediaPath: 'https://media.example.test/object.png',
+        },
+      }),
+      resolve: vi.fn().mockResolvedValue([
+        {
+          organizationId: ORGANIZATION_ID,
+          externalMediaId: handle,
+          checksumSha256,
+          postizMediaId: 'postiz-media-1',
+          postizMediaPath: 'https://media.example.test/object.png',
+        },
+      ]),
+    };
+    const agent = client({
+      upload: vi.fn().mockResolvedValue({
+        id: 'postiz-media-1',
+        name: 'object.png',
+        path: 'https://media.example.test/object.png',
+      }),
+    });
+    const setup = service({ agent, media });
+
+    await expect(
+      setup.service.uploadMedia(ORGANIZATION_ID, {
+        externalMediaId: handle,
+        checksumSha256,
+        contentType: 'image/png',
+        bytes: new Uint8Array([1, 2, 3, 4]),
+      })
+    ).resolves.toEqual({ mediaHandle: handle, checksumSha256 });
+    await setup.service.schedule(ORGANIZATION_ID, 7, {
+      ...request,
+      document: {
+        ...request.document,
+        defaultSegments: [
+          {
+            text: 'Launch day',
+            media: [{ mediaHandle: handle, checksumSha256 }],
+          },
+        ],
+      },
+    });
+
+    expect(agent.createPost).toHaveBeenCalledWith(
+      expect.objectContaining({
+        posts: [
+          expect.objectContaining({
+            value: [
+              expect.objectContaining({
+                image: [
+                  {
+                    id: 'postiz-media-1',
+                    path: 'https://media.example.test/object.png',
+                  },
+                ],
+              }),
+            ],
+          }),
+        ],
+      })
+    );
+  });
+
+  it('rejects media above the API Gateway payload boundary before provider upload', async () => {
+    const agent = client();
+    const setup = service({ agent });
+    const bytes = new Uint8Array(10 * 1024 * 1024 + 1);
+    const checksumSha256 = createHash('sha256').update(bytes).digest('hex');
+    await expect(
+      setup.service.uploadMedia('org-1', {
+        externalMediaId: `bbx_media_${'a'.repeat(48)}`,
+        checksumSha256,
+        contentType: 'video/mp4',
+        bytes,
+      })
+    ).rejects.toThrow('Invalid social media upload.');
+    expect(agent.upload).not.toHaveBeenCalled();
+  });
   it('validates through the same Postiz path without reserving a publication', async () => {
     const setup = service();
 

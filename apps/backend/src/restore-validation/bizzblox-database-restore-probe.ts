@@ -92,6 +92,25 @@ function sha256(value: string): string {
   return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
+function restoreManifest(value: unknown) {
+  const candidate = record(value);
+  const keys = Object.keys(candidate).sort();
+  if (
+    keys.join(',') !== 'dataDigest,migrationDigest,rowCount' ||
+    !/^[a-f0-9]{64}$/.test(String(candidate.dataDigest ?? '')) ||
+    !/^[a-f0-9]{64}$/.test(String(candidate.migrationDigest ?? '')) ||
+    !Number.isSafeInteger(candidate.rowCount) ||
+    (candidate.rowCount as number) < 0
+  ) {
+    return fail();
+  }
+  return Object.freeze({
+    dataDigest: candidate.dataDigest as string,
+    migrationDigest: candidate.migrationDigest as string,
+    rowCount: candidate.rowCount as number,
+  });
+}
+
 function columnRows(rows: readonly unknown[]): readonly ColumnRow[] {
   if (rows.length === 0 || rows.length > MAX_COLUMNS) return fail();
   return Object.freeze(
@@ -275,6 +294,31 @@ export async function collectDatabaseRestoreSnapshot(
   try {
     await client.connect();
     return await collect(kind, client);
+  } catch {
+    return fail();
+  } finally {
+    try {
+      await client.disconnect();
+    } catch {
+      fail();
+    }
+  }
+}
+
+/** Reads the strict aggregate manifest that was included in the recovery point. */
+export async function readDatabaseRestoreManifest(
+  client: RestoreDatabaseQueryClient
+) {
+  try {
+    await client.connect();
+    const rows = await client.query(`
+      SELECT "expected_manifest" AS "expectedManifest"
+      FROM "public"."bizzblox_restore_canary"
+      WHERE "id" = '${RESTORE_CANARY_DATABASE_ID}'
+      LIMIT 2
+    `);
+    if (rows.length !== 1) return fail();
+    return restoreManifest(record(rows[0]).expectedManifest);
   } catch {
     return fail();
   } finally {

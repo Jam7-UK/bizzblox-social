@@ -1,16 +1,41 @@
 import {
+  GetObjectCommand,
   GetObjectAttributesCommand,
   ListObjectsV2Command,
 } from '@aws-sdk/client-s3';
+import { Readable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 
 import { RestoreProbeError } from './bizzblox-restore-probe';
-import { collectMediaRestoreSnapshot } from './bizzblox-media-restore-probe';
+import {
+  collectMediaRestoreSnapshot,
+  readMediaRestoreManifest,
+} from './bizzblox-media-restore-probe';
 
 const CHECKSUM_A = Buffer.alloc(32, 1).toString('base64');
 const CHECKSUM_B = Buffer.alloc(32, 2).toString('base64');
 
 describe('BizzBLOX media restore probe adapter', () => {
+  it('reads only the strict value-free manifest included in the recovery point', async () => {
+    const expected = {
+      byteCount: 384,
+      inventoryDigest: 'a'.repeat(64),
+      objectCount: 2,
+    };
+    const send = vi.fn().mockResolvedValue({
+      Body: Readable.from([JSON.stringify(expected)]),
+      ContentLength: Buffer.byteLength(JSON.stringify(expected)),
+    });
+    await expect(
+      readMediaRestoreManifest('bizzblox-social-restored-media', { send })
+    ).resolves.toEqual(expected);
+    const command = send.mock.calls[0]?.[0];
+    expect(command).toBeInstanceOf(GetObjectCommand);
+    expect((command as GetObjectCommand).input.Key).toBe(
+      'bizzblox-validation/restore-manifest-v2.json'
+    );
+  });
+
   it('paginates the fixed prefix and verifies every stored SHA-256 attribute', async () => {
     const send = vi.fn(async (command: unknown) => {
       if (command instanceof ListObjectsV2Command) {

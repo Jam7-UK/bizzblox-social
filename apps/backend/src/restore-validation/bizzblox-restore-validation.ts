@@ -143,17 +143,16 @@ export function validateDatabaseRestore(evidence: unknown): string {
   return DATABASE_RESTORE_VALIDATION_RESULT;
 }
 
-/** Validates recovery-point-contained database evidence without live-state comparison. */
+/** Validates recovery-point-contained database evidence against its pre-backup manifest. */
 export function validateDatabaseRestoreV2(evidence: unknown): string {
   const candidate = record(evidence);
   hasExactKeys(candidate, [
     'canaryVerified',
-    'catalogDigest',
     'connectionVerified',
+    'expected',
     'failedMigrationCount',
     'kind',
-    'migrationDigest',
-    'rowCount',
+    'restored',
     'version',
   ]);
   if (
@@ -161,13 +160,19 @@ export function validateDatabaseRestoreV2(evidence: unknown): string {
     candidate.version !== 2 ||
     candidate.connectionVerified !== true ||
     candidate.canaryVerified !== true ||
-    count(candidate.failedMigrationCount) !== 0 ||
-    count(candidate.rowCount) < 1
+    count(candidate.failedMigrationCount) !== 0
   ) {
     fail();
   }
-  digest(candidate.catalogDigest);
-  digest(candidate.migrationDigest);
+  const expected = databaseSnapshot(candidate.expected);
+  const restored = databaseSnapshot(candidate.restored);
+  if (
+    expected.dataDigest !== restored.dataDigest ||
+    expected.migrationDigest !== restored.migrationDigest ||
+    expected.rowCount !== restored.rowCount
+  ) {
+    fail();
+  }
   return DATABASE_RESTORE_VALIDATION_RESULT_V2;
 }
 
@@ -202,12 +207,13 @@ export function validateMediaRestore(evidence: unknown): string {
   return MEDIA_RESTORE_VALIDATION_RESULT;
 }
 
-/** Validates restored media using its durable canary and provider-held checksums. */
+/** Validates restored media using its durable canary and pre-backup manifest. */
 export function validateMediaRestoreV2(evidence: unknown): string {
   const candidate = record(evidence);
   hasExactKeys(candidate, [
     'canaryVerified',
     'checksumFailureCount',
+    'expected',
     'kind',
     'restored',
     'version',
@@ -220,7 +226,15 @@ export function validateMediaRestoreV2(evidence: unknown): string {
   ) {
     fail();
   }
+  const expected = mediaSnapshot(candidate.expected);
   const restored = restoredMediaSnapshot(candidate.restored);
-  if (restored.verifiedObjectCount !== restored.objectCount) fail();
+  if (
+    expected.byteCount !== restored.byteCount ||
+    expected.inventoryDigest !== restored.inventoryDigest ||
+    expected.objectCount !== restored.objectCount ||
+    restored.verifiedObjectCount !== restored.objectCount
+  ) {
+    fail();
+  }
   return MEDIA_RESTORE_VALIDATION_RESULT_V2;
 }

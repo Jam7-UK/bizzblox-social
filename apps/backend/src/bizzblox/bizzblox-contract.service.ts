@@ -122,8 +122,27 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-const SECRET_KEY =
-  /(^|[_-])(access[_-]?token|refresh[_-]?token|token|secret|password|authorization|cookie|api[_-]?key)($|[_-])/i;
+const SECRET_KEY_SUFFIXES = Object.freeze([
+  'accesstoken',
+  'refreshtoken',
+  'sessiontoken',
+  'authtoken',
+  'bearertoken',
+  'apikey',
+  'clientsecret',
+  'privatekey',
+  'password',
+  'authorization',
+  'cookie',
+  'secret',
+  'token',
+  'jwt',
+]);
+
+function isSecretKey(key: string): boolean {
+  const normalized = key.replace(/[^A-Za-z0-9]/g, '').toLowerCase();
+  return SECRET_KEY_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
+}
 
 function boundedJson(value: JsonValue, depth = 0): JsonValue {
   if (depth > 8) return '[truncated]';
@@ -141,7 +160,7 @@ function boundedJson(value: JsonValue, depth = 0): JsonValue {
         .slice(0, 100)
         .map(([key, item]) => [
           key.slice(0, 200),
-          SECRET_KEY.test(key) ? '[redacted]' : boundedJson(item, depth + 1),
+          isSecretKey(key) ? '[redacted]' : boundedJson(item, depth + 1),
         ])
     )
   );

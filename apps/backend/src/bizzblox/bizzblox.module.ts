@@ -43,9 +43,14 @@ import {
 } from './bizzblox-contract.service';
 import { BizzbloxController } from './bizzblox.controller';
 import { PostizBizzbloxCustomFieldSealer } from './bizzblox-custom-field.sealer';
+import {
+  BIZZBLOX_MEDIA_DATABASE,
+  PrismaBizzbloxMediaStore,
+} from './bizzblox-media.store';
 import { BizzbloxPublicationsController } from './bizzblox-publications.controller';
 import {
   BIZZBLOX_CHANNEL_ACCESS,
+  BIZZBLOX_MEDIA_STORE,
   BIZZBLOX_POSTIZ_CLIENTS,
   BIZZBLOX_PUBLICATION_IDS,
   BIZZBLOX_PUBLICATION_STORE,
@@ -191,6 +196,7 @@ function connectionStateCodec(): BizzbloxConnectionStateCodec {
     PostizBizzbloxCustomFieldSealer,
     PrismaBizzbloxTenantStore,
     PrismaBizzbloxPublicationStore,
+    PrismaBizzbloxMediaStore,
     PrismaBizzbloxChannelAccess,
     PrismaBizzbloxChannelDirectory,
     BizzbloxPostizClientFactory,
@@ -201,11 +207,13 @@ function connectionStateCodec(): BizzbloxConnectionStateCodec {
     { provide: BIZZBLOX_TENANT_DATABASE, useExisting: PrismaService },
     { provide: BIZZBLOX_CHANNEL_DATABASE, useExisting: PrismaService },
     { provide: BIZZBLOX_PUBLICATION_DATABASE, useExisting: PrismaService },
+    { provide: BIZZBLOX_MEDIA_DATABASE, useExisting: PrismaService },
     { provide: BIZZBLOX_TENANT_STORE, useExisting: PrismaBizzbloxTenantStore },
     {
       provide: BIZZBLOX_PUBLICATION_STORE,
       useExisting: PrismaBizzbloxPublicationStore,
     },
+    { provide: BIZZBLOX_MEDIA_STORE, useExisting: PrismaBizzbloxMediaStore },
     {
       provide: BIZZBLOX_CHANNEL_ACCESS,
       useExisting: PrismaBizzbloxChannelAccess,
