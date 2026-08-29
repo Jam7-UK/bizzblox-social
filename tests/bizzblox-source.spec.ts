@@ -33,6 +33,10 @@ describe('BizzBLOX corresponding source', () => {
     expect(dockerfile).toContain(
       '/app/node_modules/.prisma/client ./node_modules/.prisma/client'
     );
+    const buildStageSetup = dockerfile.split('RUN corepack enable')[0] ?? '';
+    for (const nativeBuildTool of ['python3', 'make', 'g++']) {
+      expect(buildStageSetup).toContain(nativeBuildTool);
+    }
     expect(dockerfile).not.toMatch(/(:latest|FROM\s+[^\s]+:main)/);
   });
 
