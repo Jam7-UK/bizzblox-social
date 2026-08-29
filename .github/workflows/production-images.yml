@@ -44,6 +44,9 @@ jobs:
           test "$(git branch --show-current)" = ""
           git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
           git merge-base --is-ancestor "${SOURCE_REVISION}" origin/main
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271
+        with:
+          version: 10.33.0
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22.22.1
@@ -52,13 +55,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          corepack enable
           pnpm install --frozen-lockfile
           pnpm source:check
-          pnpm test
           pnpm build:backend
           pnpm build:orchestrator
           pnpm runtime:check
+          pnpm test
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130
         with:
           platforms: arm64

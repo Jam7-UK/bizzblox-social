@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const workflowPath = '.github/workflows/production-images.yml';
+const ciWorkflowPath = '.github/workflows/ci.yml';
 
 describe('BizzBLOX production image release workflow', () => {
   it('publishes exact AGPL source targets through the protected OIDC role', () => {
@@ -46,4 +47,20 @@ describe('BizzBLOX production image release workflow', () => {
     expect(install).toBeGreaterThan(ancestry);
     expect(workflow).toContain('origin/main');
   });
+
+  it.each([workflowPath, ciWorkflowPath])(
+    'installs pnpm before configuring its cache and builds runtime targets before the closure test in %s',
+    (path) => {
+      const workflow = readFileSync(path, 'utf8');
+      const pnpmSetup = workflow.indexOf('pnpm/action-setup@');
+      const nodeSetup = workflow.indexOf('actions/setup-node@');
+      const backendBuild = workflow.indexOf('pnpm build:backend');
+      const tests = workflow.indexOf('pnpm test');
+
+      expect(pnpmSetup).toBeGreaterThan(-1);
+      expect(nodeSetup).toBeGreaterThan(pnpmSetup);
+      expect(backendBuild).toBeGreaterThan(nodeSetup);
+      expect(tests).toBeGreaterThan(backendBuild);
+    }
+  );
 });
