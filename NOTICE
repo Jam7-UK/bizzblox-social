@@ -1,0 +1,17 @@
+BizzBLOX Social
+Copyright (C) 2026 Jam 7 Ltd
+
+This program is derived from Postiz:
+https://github.com/gitroomhq/postiz-app
+
+The initial BizzBLOX source baseline is Postiz commit
+0f1647f7491a217d43eb5ae7a480484bdf0aff3e. Postiz copyright and authorship
+history are preserved in this repository and in the source files.
+
+Modified by Jam 7 Ltd on 29 August 2026. At this revision, Jam 7 changes are
+limited to distribution identity, source provenance, modification notice, and
+security-reporting documentation. Later modifications remain visible in Git
+history.
+
+The entire covered work is licensed under the GNU Affero General Public
+License, version 3. See LICENSE.
