@@ -16,12 +16,27 @@ export class RefreshIntegrationService {
     private _integrationService: IntegrationService,
     private _temporalService: TemporalService
   ) {}
-  async refresh(integration: Integration, cause = ''): Promise<false | AuthTokenDetails> {
+  async refresh(
+    integration: Integration,
+    cause = ''
+  ): Promise<false | AuthTokenDetails> {
+    const providerIntegration =
+      await this._integrationService.getIntegrationForProviderExecution(
+        integration.organizationId,
+        integration.id
+      );
+    if (!providerIntegration) {
+      return false;
+    }
     const socialProvider = this._integrationManager.getSocialIntegration(
-      integration.providerIdentifier
+      providerIntegration.providerIdentifier
     );
 
-    const refresh = await this.refreshProcess(integration, socialProvider, cause);
+    const refresh = await this.refreshProcess(
+      providerIntegration,
+      socialProvider,
+      cause
+    );
 
     if (!refresh) {
       return false as const;
@@ -30,12 +45,12 @@ export class RefreshIntegrationService {
     await this._integrationService.createOrUpdateIntegration(
       undefined,
       !!socialProvider.oneTimeToken,
-      integration.organizationId,
-      integration.name,
-      integration.picture!,
+      providerIntegration.organizationId,
+      providerIntegration.name,
+      providerIntegration.picture!,
       'social',
-      integration.internalId,
-      integration.providerIdentifier,
+      providerIntegration.internalId,
+      providerIntegration.providerIdentifier,
       refresh.accessToken,
       refresh.refreshToken,
       refresh.expiresIn
@@ -53,7 +68,11 @@ export class RefreshIntegrationService {
     );
   }
 
-  public async startRefreshWorkflow(orgId: string, id: string, integration: SocialProvider) {
+  public async startRefreshWorkflow(
+    orgId: string,
+    id: string,
+    integration: SocialProvider
+  ) {
     if (!integration.refreshCron) {
       return false;
     }
@@ -62,7 +81,7 @@ export class RefreshIntegrationService {
       .getRawClient()
       ?.workflow.start(`refreshTokenWorkflow`, {
         workflowId: `refresh_${id}`,
-        args: [{integrationId: id, organizationId: orgId}],
+        args: [{ integrationId: id, organizationId: orgId }],
         taskQueue: 'main',
         workflowIdConflictPolicy: 'TERMINATE_EXISTING',
       });

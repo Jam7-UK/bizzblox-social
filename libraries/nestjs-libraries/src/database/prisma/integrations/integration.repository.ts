@@ -1,12 +1,16 @@
 import { PrismaRepository } from '@gitroom/nestjs-libraries/database/prisma/prisma.service';
-import { Injectable } from '@nestjs/common';
-import { createHash } from 'crypto';
+import { Inject, Injectable } from '@nestjs/common';
+import { createHash, randomUUID } from 'crypto';
 import dayjs from 'dayjs';
 import { Integration } from '@prisma/client';
 import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
 import { IntegrationTimeDto } from '@gitroom/nestjs-libraries/dtos/integrations/integration.time.dto';
 import { UploadFactory } from '@gitroom/nestjs-libraries/upload/upload.factory';
 import { PlugDto } from '@gitroom/nestjs-libraries/dtos/plugs/plug.dto';
+import {
+  PROVIDER_TOKEN_CODEC,
+  type ProviderTokenCodec,
+} from '@gitroom/nestjs-libraries/bizzblox/token-envelope';
 
 @Injectable()
 export class IntegrationRepository {
@@ -17,8 +21,46 @@ export class IntegrationRepository {
     private _plugs: PrismaRepository<'plugs'>,
     private _exisingPlugData: PrismaRepository<'exisingPlugData'>,
     private _customers: PrismaRepository<'customer'>,
-    private _mentions: PrismaRepository<'mentions'>
+    private _mentions: PrismaRepository<'mentions'>,
+    @Inject(PROVIDER_TOKEN_CODEC)
+    private _providerTokens: ProviderTokenCodec
   ) {}
+
+  private async sealProviderToken(
+    organizationId: string,
+    integrationId: string,
+    purpose: 'access' | 'refresh',
+    value: string
+  ): Promise<string> {
+    return this._providerTokens.seal(
+      { integrationId, organizationId, purpose },
+      value
+    );
+  }
+
+  async openForProviderExecution<T extends Integration>(
+    integration: T
+  ): Promise<T> {
+    const token = await this._providerTokens.open(
+      {
+        integrationId: integration.id,
+        organizationId: integration.organizationId,
+        purpose: 'access',
+      },
+      integration.token
+    );
+    const refreshToken = integration.refreshToken
+      ? await this._providerTokens.open(
+          {
+            integrationId: integration.id,
+            organizationId: integration.organizationId,
+            purpose: 'refresh',
+          },
+          integration.refreshToken
+        )
+      : integration.refreshToken;
+    return { ...integration, refreshToken, token };
+  }
 
   getMentions(platform: string, q: string) {
     return this._mentions.model.mentions.findMany({
@@ -166,6 +208,31 @@ export class IntegrationRepository {
       },
     });
 
+    const targetId = existing?.id ?? id;
+    const securedParams = { ...params };
+    if (typeof params.token === 'string') {
+      if (!params.organizationId) {
+        throw new Error('Managed provider token context is incomplete.');
+      }
+      securedParams.token = await this.sealProviderToken(
+        params.organizationId,
+        targetId,
+        'access',
+        params.token
+      );
+    }
+    if (typeof params.refreshToken === 'string' && params.refreshToken) {
+      if (!params.organizationId) {
+        throw new Error('Managed provider token context is incomplete.');
+      }
+      securedParams.refreshToken = await this.sealProviderToken(
+        params.organizationId,
+        targetId,
+        'refresh',
+        params.refreshToken
+      );
+    }
+
     if (existing) {
       await this._posts.model.post.updateMany({
         where: {
@@ -189,10 +256,10 @@ export class IntegrationRepository {
 
     return this._integration.model.integration.update({
       where: {
-        ...(existing ? { id: existing.id } : { id }),
+        id: targetId,
       },
       data: {
-        ...params,
+        ...securedParams,
         disabled: false,
         deletedAt: null,
       },
@@ -296,6 +363,31 @@ export class IntegrationRepository {
     timezone?: number,
     customInstanceDetails?: string
   ) {
+    const existingIntegration =
+      await this._integration.model.integration.findUnique({
+        where: {
+          organizationId_internalId: {
+            internalId,
+            organizationId: org,
+          },
+        },
+        select: { id: true },
+      });
+    const integrationId = existingIntegration?.id ?? randomUUID();
+    const sealedToken = await this.sealProviderToken(
+      org,
+      integrationId,
+      'access',
+      token
+    );
+    const sealedRefreshToken = refreshToken
+      ? await this.sealProviderToken(
+          org,
+          integrationId,
+          'refresh',
+          refreshToken
+        )
+      : '';
     const postTimes = timezone
       ? {
           postingTimes: JSON.stringify([
@@ -305,7 +397,7 @@ export class IntegrationRepository {
           ]),
         }
       : {};
-    const upsert = await this._integration.model.integration.upsert({
+    let upsert = await this._integration.model.integration.upsert({
       where: {
         organizationId_internalId: {
           internalId,
@@ -313,14 +405,15 @@ export class IntegrationRepository {
         },
       },
       create: {
+        id: integrationId,
         type: type as any,
         name,
         providerIdentifier: provider,
-        token,
+        token: sealedToken,
         profile: username,
         ...(picture ? { picture } : {}),
         inBetweenSteps: isBetweenSteps,
-        refreshToken,
+        refreshToken: sealedRefreshToken,
         ...(expiresIn
           ? { tokenExpiration: new Date(Date.now() + expiresIn * 1000) }
           : {}),
@@ -348,8 +441,8 @@ export class IntegrationRepository {
         ...(picture ? { picture } : {}),
         profile: username,
         providerIdentifier: provider,
-        token,
-        refreshToken,
+        token: sealedToken,
+        refreshToken: sealedRefreshToken,
         ...(expiresIn
           ? { tokenExpiration: new Date(Date.now() + expiresIn * 1000) }
           : {}),
@@ -359,6 +452,28 @@ export class IntegrationRepository {
         refreshNeeded: false,
       },
     });
+
+    // A competing first connection may win the unique organization/account
+    // row after our initial lookup. Rebind the envelopes to the row Prisma
+    // actually returned before any caller can use them.
+    if (upsert.id !== integrationId) {
+      const reboundToken = await this.sealProviderToken(
+        org,
+        upsert.id,
+        'access',
+        token
+      );
+      const reboundRefreshToken = refreshToken
+        ? await this.sealProviderToken(org, upsert.id, 'refresh', refreshToken)
+        : '';
+      upsert = await this._integration.model.integration.update({
+        where: { id: upsert.id },
+        data: {
+          token: reboundToken,
+          refreshToken: reboundRefreshToken,
+        },
+      });
+    }
 
     if (oneTimeToken) {
       const rootId =
@@ -371,22 +486,50 @@ export class IntegrationRepository {
           })
         )?.rootInternalId || internalId;
 
-      await this._integration.model.integration.updateMany({
+      const siblings = await this._integration.model.integration.findMany({
         where: {
-          id: {
-            not: upsert.id,
-          },
+          id: { not: upsert.id },
+          organizationId: org,
           rootInternalId: rootId,
         },
-        data: {
-          token,
-          refreshToken,
-          refreshNeeded: false,
-          ...(expiresIn
-            ? { tokenExpiration: new Date(Date.now() + expiresIn * 1000) }
-            : {}),
-        },
+        select: { id: true, organizationId: true },
       });
+      const siblingTokens = await Promise.all(
+        siblings.map(async (sibling) => ({
+          id: sibling.id,
+          token: await this.sealProviderToken(
+            sibling.organizationId,
+            sibling.id,
+            'access',
+            token
+          ),
+          refreshToken: refreshToken
+            ? await this.sealProviderToken(
+                sibling.organizationId,
+                sibling.id,
+                'refresh',
+                refreshToken
+              )
+            : '',
+        }))
+      );
+      await Promise.all(
+        siblingTokens.map((sibling) =>
+          this._integration.model.integration.update({
+            where: { id: sibling.id },
+            data: {
+              token: sibling.token,
+              refreshToken: sibling.refreshToken,
+              refreshNeeded: false,
+              ...(expiresIn
+                ? {
+                    tokenExpiration: new Date(Date.now() + expiresIn * 1000),
+                  }
+                : {}),
+            },
+          })
+        )
+      );
     }
 
     return upsert;

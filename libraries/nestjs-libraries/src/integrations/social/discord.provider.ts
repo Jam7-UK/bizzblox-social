@@ -10,6 +10,7 @@ import { Integration } from '@prisma/client';
 import { DiscordDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/discord.dto';
 import { Tool } from '@gitroom/nestjs-libraries/integrations/tool.decorator';
 import FormDataUpload from 'form-data';
+import { socialCallbackUrl } from '@gitroom/nestjs-libraries/integrations/social/social.callback-url';
 
 export class DiscordProvider extends SocialAbstract implements SocialProvider {
   override maxConcurrentJob = 5; // Discord has generous rate limits for webhook posting
@@ -60,13 +61,17 @@ export class DiscordProvider extends SocialAbstract implements SocialProvider {
       username: '',
     };
   }
-  async generateAuthUrl() {
+  async generateAuthUrl(_clientInformation?: unknown, callbackUrl?: string) {
     const state = makeId(6);
     return {
       url: `https://discord.com/oauth2/authorize?client_id=${
         process.env.DISCORD_CLIENT_ID
       }&permissions=377957124096&response_type=code&redirect_uri=${encodeURIComponent(
-        `${process.env.FRONTEND_URL}/integrations/social/discord`
+        socialCallbackUrl(
+          this.identifier,
+          callbackUrl,
+          `${process.env.FRONTEND_URL}/integrations/social/discord`
+        )
       )}&integration_type=0&scope=bot+identify+guilds&state=${state}`,
       codeVerifier: makeId(10),
       state,
@@ -77,6 +82,7 @@ export class DiscordProvider extends SocialAbstract implements SocialProvider {
     code: string;
     codeVerifier: string;
     refresh?: string;
+    callbackUrl?: string;
   }) {
     const { access_token, expires_in, refresh_token, scope, guild } = await (
       await this.fetch('https://discord.com/api/oauth2/token', {
@@ -84,7 +90,11 @@ export class DiscordProvider extends SocialAbstract implements SocialProvider {
         body: new URLSearchParams({
           code: params.code,
           grant_type: 'authorization_code',
-          redirect_uri: `${process.env.FRONTEND_URL}/integrations/social/discord`,
+          redirect_uri: socialCallbackUrl(
+            this.identifier,
+            params.callbackUrl,
+            `${process.env.FRONTEND_URL}/integrations/social/discord`
+          ),
         }),
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',

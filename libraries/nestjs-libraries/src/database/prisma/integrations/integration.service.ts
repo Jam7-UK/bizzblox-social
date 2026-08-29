@@ -171,6 +171,24 @@ export class IntegrationService {
     return this._integrationRepository.getIntegrationById(org, id);
   }
 
+  /** A channel with retained posts cannot be removed without orphaning Postiz work. */
+  async hasLivePostsForChannel(org: string, integrationId: string) {
+    return (
+      (await this._integrationRepository.getPostsForChannel(org, integrationId))
+        .length > 0
+    );
+  }
+
+  async getIntegrationForProviderExecution(org: string, id: string) {
+    const integration = await this._integrationRepository.getIntegrationById(
+      org,
+      id
+    );
+    return integration
+      ? this._integrationRepository.openForProviderExecution(integration)
+      : null;
+  }
+
   async refreshToken(provider: SocialProvider, refresh: string) {
     try {
       const { refreshToken, accessToken, expiresIn } =
@@ -202,10 +220,11 @@ export class IntegrationService {
     newProvider: string,
     auth: { id: string; username: string }
   ) {
-    const existing = await this._integrationRepository.getIntegrationByInternalId(
-      org,
-      oldInternalId
-    );
+    const existing =
+      await this._integrationRepository.getIntegrationByInternalId(
+        org,
+        oldInternalId
+      );
 
     if (
       !existing ||
@@ -323,7 +342,11 @@ export class IntegrationService {
 
   async refreshTokens() {
     const integrations = await this._integrationRepository.needsToBeRefreshed();
-    for (const integration of integrations) {
+    for (const storedIntegration of integrations) {
+      const integration =
+        await this._integrationRepository.openForProviderExecution(
+          storedIntegration
+        );
       const provider = this._integrationManager.getSocialIntegration(
         integration.providerIdentifier
       );
@@ -395,7 +418,7 @@ export class IntegrationService {
   }
 
   async saveProviderPage(org: string, id: string, data: any) {
-    const getIntegration = await this._integrationRepository.getIntegrationById(
+    const getIntegration = await this.getIntegrationForProviderExecution(
       org,
       id
     );
@@ -445,7 +468,10 @@ export class IntegrationService {
     date: string,
     forceRefresh = false
   ): Promise<AnalyticsData[]> {
-    const getIntegration = await this.getIntegrationById(org.id, integration);
+    const getIntegration = await this.getIntegrationForProviderExecution(
+      org.id,
+      integration
+    );
 
     if (!getIntegration) {
       throw new Error('Invalid integration');
@@ -540,13 +566,12 @@ export class IntegrationService {
     },
     forceRefresh = false
   ): Promise<any> {
-    const originalIntegration =
-      await this._integrationRepository.getIntegrationById(
-        data.orgId,
-        data.originalIntegration
-      );
+    const originalIntegration = await this.getIntegrationForProviderExecution(
+      data.orgId,
+      data.originalIntegration
+    );
 
-    const getIntegration = await this._integrationRepository.getIntegrationById(
+    const getIntegration = await this.getIntegrationForProviderExecution(
       data.orgId,
       data.integration
     );
@@ -590,13 +615,17 @@ export class IntegrationService {
       return true;
     }
 
+    const providerIntegration =
+      await this._integrationRepository.openForProviderExecution(
+        getPlugById.integration
+      );
     const integration = this._integrationManager.getSocialIntegration(
-      getPlugById.integration.providerIdentifier
+      providerIntegration.providerIdentifier
     );
 
     // @ts-ignore
     const process = await integration[getPlugById.plugFunction](
-      getPlugById.integration,
+      providerIntegration,
       data.postId,
       JSON.parse(getPlugById.data).reduce((all: any, current: any) => {
         all[current.name] = current.value;

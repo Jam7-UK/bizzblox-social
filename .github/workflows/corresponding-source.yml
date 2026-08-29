@@ -1,0 +1,61 @@
+name: Publish corresponding source
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_revision:
+        description: Exact reviewed 40-character source revision
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.source_revision }}
+      - name: Verify revision belongs to public main
+        shell: bash
+        env:
+          SOURCE_REVISION: ${{ inputs.source_revision }}
+        run: |
+          set -euo pipefail
+          [[ "${SOURCE_REVISION}" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "${SOURCE_REVISION}"
+          test "$(git branch --show-current)" = ""
+          git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          git merge-base --is-ancestor "${SOURCE_REVISION}" origin/main
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.22.1
+      - run: corepack enable
+      - name: Verify exact public revision
+        env:
+          APPROVED_REVISION: ${{ inputs.source_revision }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$APPROVED_REVISION"
+          test "${#APPROVED_REVISION}" = 40
+          pnpm source:check
+      - name: Build immutable corresponding-source archive
+        env:
+          APPROVED_REVISION: ${{ inputs.source_revision }}
+        run: |
+          git archive --format=tar.gz \
+            --prefix="bizzblox-social-${APPROVED_REVISION}/" \
+            --output="bizzblox-social-${APPROVED_REVISION}.tar.gz" \
+            "$APPROVED_REVISION"
+          sha256sum "bizzblox-social-${APPROVED_REVISION}.tar.gz" \
+            > "bizzblox-social-${APPROVED_REVISION}.sha256"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: bizzblox-social-source-${{ inputs.source_revision }}
+          path: |
+            bizzblox-social-${{ inputs.source_revision }}.tar.gz
+            bizzblox-social-${{ inputs.source_revision }}.sha256
+          if-no-files-found: error
+          retention-days: 90

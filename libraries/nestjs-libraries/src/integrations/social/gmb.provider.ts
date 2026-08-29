@@ -17,13 +17,19 @@ import * as process from 'node:process';
 import dayjs from 'dayjs';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
 import { GmbSettingsDto } from '@gitroom/nestjs-libraries/dtos/posts/providers-settings/gmb.settings.dto';
+import { socialCallbackUrl } from '@gitroom/nestjs-libraries/integrations/social/social.callback-url';
 
-const clientAndGmb = () => {
+const clientAndGmb = (callbackUrl?: string) => {
+  const redirectUri = socialCallbackUrl(
+    'gmb',
+    callbackUrl,
+    `${process.env.FRONTEND_URL}/integrations/social/gmb`
+  );
   const client = new google.auth.OAuth2({
     clientId: process.env.GOOGLE_GMB_CLIENT_ID || process.env.YOUTUBE_CLIENT_ID,
     clientSecret:
       process.env.GOOGLE_GMB_CLIENT_SECRET || process.env.YOUTUBE_CLIENT_SECRET,
-    redirectUri: `${process.env.FRONTEND_URL}/integrations/social/gmb`,
+    redirectUri,
   });
 
   const oauth2 = (newClient: OAuth2Client) =>
@@ -156,15 +162,19 @@ export class GmbProvider extends SocialAbstract implements SocialProvider {
     };
   }
 
-  async generateAuthUrl() {
+  async generateAuthUrl(_clientInformation?: unknown, callbackUrl?: string) {
     const state = makeId(7);
-    const { client } = clientAndGmb();
+    const { client } = clientAndGmb(callbackUrl);
     return {
       url: client.generateAuthUrl({
         access_type: 'offline',
         prompt: 'consent',
         state,
-        redirect_uri: `${process.env.FRONTEND_URL}/integrations/social/gmb`,
+        redirect_uri: socialCallbackUrl(
+          this.identifier,
+          callbackUrl,
+          `${process.env.FRONTEND_URL}/integrations/social/gmb`
+        ),
         scope: this.scopes.slice(0),
       }),
       codeVerifier: makeId(11),
@@ -176,8 +186,9 @@ export class GmbProvider extends SocialAbstract implements SocialProvider {
     code: string;
     codeVerifier: string;
     refresh?: string;
+    callbackUrl?: string;
   }) {
-    const { client, oauth2 } = clientAndGmb();
+    const { client, oauth2 } = clientAndGmb(params.callbackUrl);
     const { tokens } = await client.getToken(params.code);
     client.setCredentials(tokens);
     const { scopes } = await client.getTokenInfo(tokens.access_token!);
@@ -212,7 +223,9 @@ export class GmbProvider extends SocialAbstract implements SocialProvider {
       if (accountsPageToken) {
         params.set('pageToken', accountsPageToken);
       }
-      const url = `https://mybusinessaccountmanagement.googleapis.com/v1/accounts${params.toString() ? `?${params}` : ''}`;
+      const url = `https://mybusinessaccountmanagement.googleapis.com/v1/accounts${
+        params.toString() ? `?${params}` : ''
+      }`;
 
       const accountsResponse = await fetch(url, {
         headers: {

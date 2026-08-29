@@ -25,7 +25,9 @@
     "noFallthroughCasesInSwitch": true,
     "strict": true,
     "paths": {
-      "@langchain/langgraph/prebuilt": ["node_modules/@langchain/langgraph/dist/prebuilt/index.d.ts"],
+      "@langchain/langgraph/prebuilt": [
+        "node_modules/@langchain/langgraph/dist/prebuilt/index.d.ts"
+      ],
       "@gitroom/backend/*": ["apps/backend/src/*"],
       "@gitroom/frontend/*": ["apps/frontend/src/*"],
       "@gitroom/helpers/*": ["libraries/helpers/src/*"],
@@ -33,7 +35,10 @@
       "@gitroom/react/*": ["libraries/react-shared-libraries/src/*"],
       "@gitroom/plugins/*": ["libraries/plugins/src/*"],
       "@gitroom/orchestrator/*": ["apps/orchestrator/src/*"],
-      "@gitroom/extension/*": ["apps/extension/src/*"]
+      "@gitroom/extension/*": ["apps/extension/src/*"],
+      "@bizzblox/postiz-agent-client": [
+        "libraries/postiz-agent-client/src/index.ts"
+      ]
     }
   },
   "exclude": ["node_modules", "tmp"]

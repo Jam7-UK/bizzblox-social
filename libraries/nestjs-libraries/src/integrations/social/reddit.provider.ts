@@ -19,6 +19,7 @@ import FormDataUpload from 'form-data';
 import { Tool } from '@gitroom/nestjs-libraries/integrations/tool.decorator';
 import { Integration } from '@prisma/client';
 import { hasExtension } from '@gitroom/helpers/utils/has.extension';
+import { socialCallbackUrl } from '@gitroom/nestjs-libraries/integrations/social/social.callback-url';
 
 // Travels through the workflow history between postPending, checkPostStatus
 // and finalizePost. The cursor makes every subreddit submit its own
@@ -124,13 +125,17 @@ export class RedditProvider extends SocialAbstract implements SocialProvider {
     };
   }
 
-  async generateAuthUrl() {
+  async generateAuthUrl(_clientInformation?: unknown, callbackUrl?: string) {
     const state = makeId(6);
     const codeVerifier = makeId(30);
     const url = `https://www.reddit.com/api/v1/authorize?client_id=${
       process.env.REDDIT_CLIENT_ID
     }&response_type=code&state=${state}&redirect_uri=${encodeURIComponent(
-      `${process.env.FRONTEND_URL}/integrations/social/reddit`
+      socialCallbackUrl(
+        this.identifier,
+        callbackUrl,
+        `${process.env.FRONTEND_URL}/integrations/social/reddit`
+      )
     )}&duration=permanent&scope=${encodeURIComponent(this.scopes.join(' '))}`;
     return {
       url,
@@ -139,7 +144,11 @@ export class RedditProvider extends SocialAbstract implements SocialProvider {
     };
   }
 
-  async authenticate(params: { code: string; codeVerifier: string }) {
+  async authenticate(params: {
+    code: string;
+    codeVerifier: string;
+    callbackUrl?: string;
+  }) {
     const {
       access_token: accessToken,
       refresh_token: refreshToken,
@@ -157,7 +166,11 @@ export class RedditProvider extends SocialAbstract implements SocialProvider {
         body: new URLSearchParams({
           grant_type: 'authorization_code',
           code: params.code,
-          redirect_uri: `${process.env.FRONTEND_URL}/integrations/social/reddit`,
+          redirect_uri: socialCallbackUrl(
+            this.identifier,
+            params.callbackUrl,
+            `${process.env.FRONTEND_URL}/integrations/social/reddit`
+          ),
         }),
       })
     ).json();

@@ -11,14 +11,16 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22.22.1
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Zip extensions
         run: FRONTEND_URL=https://platform.postiz.com pnpm run build:extension

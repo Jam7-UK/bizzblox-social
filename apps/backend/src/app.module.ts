@@ -17,6 +17,7 @@ import { TemporalRegisterMissingSearchAttributesModule } from '@gitroom/nestjs-l
 import { InfiniteWorkflowRegisterModule } from '@gitroom/nestjs-libraries/temporal/infinite.workflow.register';
 import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
 import { ioRedis } from '@gitroom/nestjs-libraries/redis/redis.service';
+import { BizzbloxModule } from '@gitroom/backend/bizzblox/bizzblox.module';
 
 @Global()
 @Module({
@@ -32,6 +33,7 @@ import { ioRedis } from '@gitroom/nestjs-libraries/redis/redis.service';
     getTemporalModule(false),
     TemporalRegisterMissingSearchAttributesModule,
     InfiniteWorkflowRegisterModule,
+    ...(process.env.BIZZBLOX_SERVICE_MODE === '1' ? [BizzbloxModule] : []),
     ThrottlerModule.forRoot({
       throttlers: [
         {

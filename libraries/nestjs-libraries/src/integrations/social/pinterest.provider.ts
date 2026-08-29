@@ -21,6 +21,7 @@ import dayjs from 'dayjs';
 import { Tool } from '@gitroom/nestjs-libraries/integrations/tool.decorator';
 import { Rules } from '@gitroom/nestjs-libraries/chat/rules.description.decorator';
 import { hasExtension } from '@gitroom/helpers/utils/has.extension';
+import { socialCallbackUrl } from '@gitroom/nestjs-libraries/integrations/social/social.callback-url';
 
 // Travels through the workflow history between postPending, checkPostStatus
 // and finalizePost - keep it small JSON (the media id and the pin content).
@@ -191,13 +192,17 @@ export class PinterestProvider
     };
   }
 
-  async generateAuthUrl() {
+  async generateAuthUrl(_clientInformation?: unknown, callbackUrl?: string) {
     const state = makeId(6);
     return {
       url: `https://www.pinterest.com/oauth/?client_id=${
         process.env.PINTEREST_CLIENT_ID
       }&redirect_uri=${encodeURIComponent(
-        `${process.env.FRONTEND_URL}/integrations/social/pinterest`
+        socialCallbackUrl(
+          this.identifier,
+          callbackUrl,
+          `${process.env.FRONTEND_URL}/integrations/social/pinterest`
+        )
       )}&response_type=code&scope=${encodeURIComponent(
         'boards:read,boards:write,pins:read,pins:write,user_accounts:read'
       )}&state=${state}`,
@@ -209,7 +214,8 @@ export class PinterestProvider
   async authenticate(params: {
     code: string;
     codeVerifier: string;
-    refresh: string;
+    refresh?: string;
+    callbackUrl?: string;
   }) {
     const { access_token, refresh_token, expires_in, scope } = await (
       await fetch('https://api.pinterest.com/v5/oauth/token', {
@@ -223,7 +229,11 @@ export class PinterestProvider
         body: new URLSearchParams({
           grant_type: 'authorization_code',
           code: params.code,
-          redirect_uri: `${process.env.FRONTEND_URL}/integrations/social/pinterest`,
+          redirect_uri: socialCallbackUrl(
+            this.identifier,
+            params.callbackUrl,
+            `${process.env.FRONTEND_URL}/integrations/social/pinterest`
+          ),
         }),
       })
     ).json();

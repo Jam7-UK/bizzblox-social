@@ -15,6 +15,7 @@ import { Integration } from '@prisma/client';
 import FormDataUpload from 'form-data';
 import { lookup } from 'mime-types';
 import { hasExtension } from '@gitroom/helpers/utils/has.extension';
+import { socialCallbackUrl } from '@gitroom/nestjs-libraries/integrations/social/social.callback-url';
 
 const TUMBLR_API_URL = 'https://api.tumblr.com/v2';
 const TUMBLR_USER_AGENT = 'Postiz/1.0 (+https://postiz.com)';
@@ -263,9 +264,9 @@ export class TumblrProvider extends SocialAbstract implements SocialProvider {
     };
   }
 
-  async generateAuthUrl() {
+  async generateAuthUrl(_clientInformation?: unknown, callbackUrl?: string) {
     const state = makeId(6);
-    const redirectUri = this.redirectUri();
+    const redirectUri = this.redirectUri(callbackUrl);
     const params = new URLSearchParams({
       client_id: process.env.TUMBLR_CLIENT_ID!,
       response_type: 'code',
@@ -281,14 +282,18 @@ export class TumblrProvider extends SocialAbstract implements SocialProvider {
     };
   }
 
-  async authenticate(params: { code: string; codeVerifier: string }) {
+  async authenticate(params: {
+    code: string;
+    codeVerifier: string;
+    callbackUrl?: string;
+  }) {
     const token = await this.requestToken(
       new URLSearchParams({
         grant_type: 'authorization_code',
         code: params.code,
         client_id: process.env.TUMBLR_CLIENT_ID!,
         client_secret: process.env.TUMBLR_CLIENT_SECRET!,
-        redirect_uri: this.redirectUri(),
+        redirect_uri: this.redirectUri(params.callbackUrl),
       })
     );
 
@@ -403,8 +408,12 @@ export class TumblrProvider extends SocialAbstract implements SocialProvider {
     ];
   }
 
-  private redirectUri() {
-    return `${process.env.FRONTEND_URL}/integrations/social/tumblr`;
+  private redirectUri(callbackUrl?: string) {
+    return socialCallbackUrl(
+      this.identifier,
+      callbackUrl,
+      `${process.env.FRONTEND_URL}/integrations/social/tumblr`
+    );
   }
 
   private getAvatarUrl(blogName: string) {
