@@ -25,6 +25,7 @@ import { HttpExceptionFilter } from '@gitroom/nestjs-libraries/services/exceptio
 import { ConfigurationChecker } from '@gitroom/helpers/configuration/configuration.checker';
 import { startMcp } from '@gitroom/nestjs-libraries/chat/start.mcp';
 import { bizzbloxRoutePolicy } from './bizzblox/bizzblox-route-policy';
+import { shouldStartMcp } from './bizzblox/bizzblox-startup-policy';
 
 async function start() {
   const app = await NestFactory.create(AppModule, {
@@ -64,7 +65,9 @@ async function start() {
     );
   }
 
-  await startMcp(app);
+  if (shouldStartMcp(process.env.BIZZBLOX_SERVICE_MODE)) {
+    await startMcp(app);
+  }
 
   app.useGlobalPipes(
     new ValidationPipe({
