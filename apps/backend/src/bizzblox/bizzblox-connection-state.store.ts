@@ -5,7 +5,7 @@ import {
   timingSafeEqual,
 } from 'node:crypto';
 
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 
 import type { JsonValue } from '@bizzblox/postiz-agent-client';
 
@@ -16,6 +16,7 @@ import type {
   BizzbloxProviderSelectionOption,
   BizzbloxSelectionState,
 } from './bizzblox-connections.service';
+import { BIZZBLOX_CLOCK } from './bizzblox-clock';
 import { BIZZBLOX_REDIS } from './bizzblox-replay.store';
 
 export const BIZZBLOX_CONNECTION_STATE_CODEC = Symbol(
@@ -387,6 +388,8 @@ export class RedisBizzbloxConnectionStateStore
     private readonly redis: BizzbloxConnectionStateRedis,
     @Inject(BIZZBLOX_CONNECTION_STATE_CODEC)
     private readonly codec: BizzbloxConnectionStateCodec,
+    @Optional()
+    @Inject(BIZZBLOX_CLOCK)
     private readonly clock: () => Date = () => new Date()
   ) {}
 
