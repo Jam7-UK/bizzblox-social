@@ -142,6 +142,94 @@ describe('BizzBLOX service authentication guard', () => {
     }
   );
 
+  it('reads exact Gateway IAM headers without middleware state', async () => {
+    const warn = vi.spyOn(Logger, 'warn').mockImplementation(() => undefined);
+    const request: BizzbloxVerifiedRequest = {
+      body: {},
+      headers: {
+        'x-bizzblox-iam-account': '495599735993',
+        'x-bizzblox-iam-principal':
+          'arn:aws:iam::495599735993:role/BizzbloxSocialBridge',
+        'x-bizzblox-tenant-handle': 'tenant_synthetic_raw_iam_headers',
+      },
+      method: 'POST',
+      originalUrl: '/internal/bizzblox/v1/connections:begin',
+    };
+    const guard = new BizzbloxAuthGuard(
+      { verify: vi.fn() },
+      { consume: vi.fn() },
+      { verifyCredential: vi.fn() },
+      {
+        accountId: '495599735993',
+        audience: 'bizzblox-social',
+        bridgePrincipalArn:
+          'arn:aws:iam::495599735993:role/BizzbloxSocialBridge',
+        clock: () => new Date('2026-08-27T20:00:00.000Z'),
+      }
+    );
+
+    await expect(
+      guard.canActivate(executionContext(request))
+    ).rejects.toMatchObject({ status: 401 });
+    expect(warn).toHaveBeenCalledWith(
+      'BizzBLOX synthetic authorization denied at request_binding.',
+      BizzbloxAuthGuard.name
+    );
+    warn.mockRestore();
+  });
+
+  it.each([
+    [
+      'iam_account',
+      '000000000000',
+      'arn:aws:iam::495599735993:role/BizzbloxSocialBridge',
+    ],
+    [
+      'iam_principal',
+      '495599735993',
+      'arn:aws:iam::495599735993:role/UnexpectedRole',
+    ],
+  ] as const)(
+    'rejects raw Gateway headers at %s',
+    async (expectedStage, accountId, principalArn) => {
+      const warn = vi.spyOn(Logger, 'warn').mockImplementation(() => undefined);
+      const request: BizzbloxVerifiedRequest = {
+        body: {},
+        headers: {
+          'x-bizzblox-iam-account': accountId,
+          'x-bizzblox-iam-principal': principalArn,
+          'x-bizzblox-tenant-handle': 'tenant_synthetic_raw_iam_rejection',
+        },
+        method: 'POST',
+        originalUrl: '/internal/bizzblox/v1/connections:begin',
+      };
+      const guard = new BizzbloxAuthGuard(
+        { verify: vi.fn() },
+        { consume: vi.fn() },
+        { verifyCredential: vi.fn() },
+        {
+          accountId: '495599735993',
+          audience: 'bizzblox-social',
+          bridgePrincipalArn:
+            'arn:aws:iam::495599735993:role/BizzbloxSocialBridge',
+          clock: () => new Date('2026-08-27T20:00:00.000Z'),
+        }
+      );
+
+      await expect(
+        guard.canActivate(executionContext(request))
+      ).rejects.toMatchObject({ status: 401 });
+      expect(warn).toHaveBeenCalledWith(
+        `BizzBLOX synthetic authorization denied at ${expectedStage}.`,
+        BizzbloxAuthGuard.name
+      );
+      expect(JSON.stringify(warn.mock.calls)).not.toMatch(
+        /000000000000|UnexpectedRole|tenant_synthetic/
+      );
+      warn.mockRestore();
+    }
+  );
+
   it('binds an exact binary media body and metadata to the signed claim', async () => {
     const bytes = Buffer.from([1, 2, 3, 4]);
     const checksumSha256 = createHash('sha256').update(bytes).digest('hex');
