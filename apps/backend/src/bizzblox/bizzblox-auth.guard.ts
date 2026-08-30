@@ -94,6 +94,16 @@ function isSyntheticSmokeRequest(request: BizzbloxVerifiedRequest): boolean {
   );
 }
 
+function gatewayIamContext(
+  request: BizzbloxVerifiedRequest
+): BizzbloxVerifiedRequest['bizzbloxIam'] {
+  const accountId = request.headers['x-bizzblox-iam-account'];
+  const principalArn = request.headers['x-bizzblox-iam-principal'];
+  return typeof accountId === 'string' && typeof principalArn === 'string'
+    ? Object.freeze({ accountId, principalArn })
+    : undefined;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -339,7 +349,7 @@ export class BizzbloxAuthGuard implements CanActivate {
       .getRequest<BizzbloxVerifiedRequest>();
     let denialStage: BizzbloxSyntheticDenialStage = 'iam_missing';
     try {
-      const iam = request.bizzbloxIam;
+      const iam = request.bizzbloxIam ?? gatewayIamContext(request);
       if (!iam) {
         throw new UnauthorizedException();
       }
