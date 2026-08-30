@@ -36,16 +36,9 @@ describe('BizzBLOX service authentication guard', () => {
       provider: 'nostr',
       userBinding: 'user_synthetic_release_33326519826_2',
     };
-    const verify = vi.fn<BizzbloxClaimVerifier['verify']>().mockResolvedValue({
-      audience: 'bizzblox-social',
-      connectorRevision: 1,
-      expiresAt: 1787860890,
-      issuedAt: 1787860800,
-      nonce: 'nonce_01J6DCG5GFV2X9PPYF4D8KPWYB',
-      operation: 'connection.begin',
-      requestDigest: '0'.repeat(64),
-      tenantHandleHash: createHash('sha256').update(tenantHandle).digest('hex'),
-    });
+    const verify = vi
+      .fn<BizzbloxClaimVerifier['verify']>()
+      .mockRejectedValue(new Error('sensitive verifier detail'));
     const request: BizzbloxVerifiedRequest = {
       body,
       bizzbloxIam: {
@@ -84,7 +77,7 @@ describe('BizzBLOX service authentication guard', () => {
     ).rejects.toMatchObject({ status: 401 });
     expect(warn).toHaveBeenCalledOnce();
     expect(warn).toHaveBeenCalledWith(
-      'BizzBLOX synthetic authorization denied at claim_request_digest.',
+      'BizzBLOX synthetic authorization denied at claim_verification.',
       BizzbloxAuthGuard.name
     );
     expect(JSON.stringify(warn.mock.calls)).not.toMatch(

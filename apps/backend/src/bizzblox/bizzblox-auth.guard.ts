@@ -73,7 +73,7 @@ export type BizzbloxVerifiedRequest = {
 type BizzbloxSyntheticDenialStage =
   | 'iam_context'
   | 'request_binding'
-  | 'claim_signature'
+  | 'claim_verification'
   | 'claim_audience'
   | 'claim_lifetime'
   | 'claim_operation'
@@ -347,7 +347,7 @@ export class BizzbloxAuthGuard implements CanActivate {
 
       denialStage = 'request_binding';
       const binding = requestBinding(request);
-      denialStage = 'claim_signature';
+      denialStage = 'claim_verification';
       const claim = await this.claimVerifier.verify(
         binding.claim,
         binding.tenantHandle
