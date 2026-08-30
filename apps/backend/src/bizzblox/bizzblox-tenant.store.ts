@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 
 import type {
   BizzbloxTenantCandidate,
@@ -6,6 +6,7 @@ import type {
   BizzbloxTenantRecord,
   BizzbloxTenantStore,
 } from './bizzblox-tenant.service';
+import { BIZZBLOX_CLOCK } from './bizzblox-clock';
 
 type StoredBizzbloxTenant = Omit<BizzbloxTenantRecord, 'recoveryConsumedAt'> & {
   recoveryConsumedAt: Date | null;
@@ -137,6 +138,8 @@ export class PrismaBizzbloxTenantStore implements BizzbloxTenantStore {
   constructor(
     @Inject(BIZZBLOX_TENANT_DATABASE)
     private readonly database: BizzbloxTenantDatabase,
+    @Optional()
+    @Inject(BIZZBLOX_CLOCK)
     private readonly clock: () => Date = () => new Date()
   ) {}
 

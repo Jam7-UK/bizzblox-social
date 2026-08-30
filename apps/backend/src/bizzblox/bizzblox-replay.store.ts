@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
 
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 
 import type { BizzbloxReplayStore } from './bizzblox-auth.guard';
+import { BIZZBLOX_CLOCK } from './bizzblox-clock';
 
 export const BIZZBLOX_REDIS = Symbol('BIZZBLOX_REDIS');
 
@@ -21,6 +22,8 @@ export class RedisBizzbloxReplayStore implements BizzbloxReplayStore {
   constructor(
     @Inject(BIZZBLOX_REDIS)
     private readonly redis: BizzbloxReplayRedis,
+    @Optional()
+    @Inject(BIZZBLOX_CLOCK)
     private readonly clock: () => Date = () => new Date()
   ) {}
 
