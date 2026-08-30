@@ -195,6 +195,21 @@ function bounded(value: unknown, fallback: string): string {
     : fallback;
 }
 
+function isDefinitiveProviderRejection(
+  error: unknown
+): error is PostizAgentError & { status: number } {
+  return (
+    error instanceof PostizAgentError &&
+    error.code === 'provider_rejected' &&
+    error.status !== null &&
+    error.status >= 400 &&
+    error.status < 500 &&
+    error.status !== 408 &&
+    error.status !== 425 &&
+    error.status !== 429
+  );
+}
+
 function safeSettings(value: string | undefined): JsonValue {
   if (!value) return {};
   if (value.length > 32_000) {
@@ -686,16 +701,26 @@ export class BizzbloxPublicationsService {
         },
       });
       return storedScheduleOutcome(updated ?? reservation.record);
-    } catch {
+    } catch (error) {
+      const definitiveProviderRejection = isDefinitiveProviderRejection(error);
       const updated = await this.publications.transition({
         organizationId,
         externalPublicationId: input.delivery.externalPublicationId,
         payloadDigest,
-        patch: {
-          state: 'reconcile_required',
-          providerErrorCode: 'provider_acceptance_unknown',
-          providerErrorMessage: null,
-        },
+        patch: definitiveProviderRejection
+          ? {
+              state: 'rejected',
+              providerErrorCode: `provider_rejected_${error.status}`,
+              providerErrorMessage: bounded(
+                error.message,
+                'The provider rejected the publication.'
+              ),
+            }
+          : {
+              state: 'reconcile_required',
+              providerErrorCode: 'provider_acceptance_unknown',
+              providerErrorMessage: null,
+            },
       });
       return storedScheduleOutcome(updated ?? reservation.record);
     }

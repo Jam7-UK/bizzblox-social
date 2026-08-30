@@ -411,6 +411,65 @@ describe('BizzBLOX publication service', () => {
     );
   });
 
+  it('returns a bounded definitive provider rejection instead of unknown', async () => {
+    const rejectingClient = client({
+      createPost: vi
+        .fn()
+        .mockRejectedValue(
+          new PostizAgentError(
+            'provider_rejected',
+            422,
+            'Postiz rejected request (422): Provider requires an account setting.'
+          )
+        ),
+    });
+    const setup = service({ agent: rejectingClient });
+
+    await expect(
+      setup.service.schedule(ORGANIZATION_ID, 7, request)
+    ).resolves.toEqual({
+      outcome: 'rejected',
+      code: 'provider_rejected_422',
+      message:
+        'Postiz rejected request (422): Provider requires an account setting.',
+    });
+    await expect(
+      setup.service.schedule(ORGANIZATION_ID, 7, request)
+    ).resolves.toEqual({
+      outcome: 'rejected',
+      code: 'provider_rejected_422',
+      message:
+        'Postiz rejected request (422): Provider requires an account setting.',
+    });
+    expect(rejectingClient.createPost).toHaveBeenCalledOnce();
+  });
+
+  it.each([408, 425, 429])(
+    'keeps transient provider status %s in reconciliation',
+    async (status) => {
+      const failingClient = client({
+        createPost: vi
+          .fn()
+          .mockRejectedValue(
+            new PostizAgentError(
+              'provider_rejected',
+              status,
+              `Postiz rejected request (${status}): retry later.`
+            )
+          ),
+      });
+      const setup = service({ agent: failingClient });
+
+      await expect(
+        setup.service.schedule(ORGANIZATION_ID, 7, request)
+      ).resolves.toEqual({ outcome: 'unknown' });
+      await expect(
+        setup.service.schedule(ORGANIZATION_ID, 7, request)
+      ).resolves.toEqual({ outcome: 'unknown' });
+      expect(failingClient.createPost).toHaveBeenCalledOnce();
+    }
+  );
+
   it('reads the stable Postiz id directly and never scans a date range', async () => {
     const setup = service();
     await setup.service.schedule(ORGANIZATION_ID, 7, request);
