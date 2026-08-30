@@ -94,4 +94,24 @@ describe('BizzBLOX Integration V3 claims', () => {
       verifier.verify(compact, 'tenant_customer_01J6DCG5GFV2X9PPYF4D8KPWYB')
     ).rejects.toThrow('Invalid BizzBLOX operation claim.');
   });
+
+  it('rejects one RSA key supplied in different PEM encodings', () => {
+    const { publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const spki = publicKey.export({ format: 'pem', type: 'spki' }).toString();
+    const pkcs1 = publicKey.export({ format: 'pem', type: 'pkcs1' }).toString();
+
+    expect(
+      () =>
+        new BizzbloxJwtClaimVerifier({
+          audience: 'bizzblox-social',
+          clock: () => new Date(),
+          issuer: 'https://mvp.bizzblox.com/integrations/social',
+          publicKey: spki,
+          synthetic: {
+            publicKey: pkcs1,
+            tenantPattern: /^tenant_synthetic_[A-Za-z0-9_-]{1,103}$/,
+          },
+        })
+    ).toThrow('Production and synthetic operation claim keys must differ.');
+  });
 });

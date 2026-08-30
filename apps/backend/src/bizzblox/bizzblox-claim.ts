@@ -1,4 +1,4 @@
-import type { KeyObject } from 'node:crypto';
+import { createPublicKey, type KeyObject } from 'node:crypto';
 
 import { verify, type JwtPayload } from 'jsonwebtoken';
 
@@ -26,8 +26,30 @@ function sha256Digest(value: unknown): value is string {
   return typeof value === 'string' && /^[0-9a-f]{64}$/.test(value);
 }
 
+function canonicalRsaPublicKey(value: KeyObject | string): Buffer {
+  const key =
+    typeof value !== 'string' && value.type === 'public'
+      ? value
+      : createPublicKey(value);
+  if (key.asymmetricKeyType !== 'rsa') {
+    throw new Error('Invalid BizzBLOX operation claim public key.');
+  }
+  return key.export({ format: 'der', type: 'spki' });
+}
+
 export class BizzbloxJwtClaimVerifier implements BizzbloxClaimVerifier {
-  constructor(private readonly config: BizzbloxJwtClaimVerifierConfig) {}
+  constructor(private readonly config: BizzbloxJwtClaimVerifierConfig) {
+    if (
+      config.synthetic &&
+      canonicalRsaPublicKey(config.publicKey).equals(
+        canonicalRsaPublicKey(config.synthetic.publicKey)
+      )
+    ) {
+      throw new Error(
+        'Production and synthetic operation claim keys must differ.'
+      );
+    }
+  }
 
   private verifyWithKey(
     compactClaim: string,

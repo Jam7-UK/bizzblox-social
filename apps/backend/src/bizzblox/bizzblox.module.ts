@@ -124,10 +124,7 @@ function authConfig(): BizzbloxAuthConfig & {
   const smokeTenantPattern = requiredEnvironment(
     'BIZZBLOX_SMOKE_OPERATION_CLAIM_TENANT_PATTERN'
   );
-  if (
-    smokePublicKey === publicKey ||
-    smokeTenantPattern !== '^tenant_synthetic_[A-Za-z0-9_-]{1,103}$'
-  ) {
+  if (smokeTenantPattern !== '^tenant_synthetic_[A-Za-z0-9_-]{1,103}$') {
     throw new Error('Invalid BizzBLOX synthetic claim configuration');
   }
   return Object.freeze({
