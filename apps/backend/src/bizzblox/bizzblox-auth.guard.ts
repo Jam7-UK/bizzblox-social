@@ -71,7 +71,9 @@ export type BizzbloxVerifiedRequest = {
 };
 
 type BizzbloxSyntheticDenialStage =
-  | 'iam_context'
+  | 'iam_missing'
+  | 'iam_account'
+  | 'iam_principal'
   | 'request_binding'
   | 'claim_verification'
   | 'claim_audience'
@@ -335,13 +337,18 @@ export class BizzbloxAuthGuard implements CanActivate {
     const request = context
       .switchToHttp()
       .getRequest<BizzbloxVerifiedRequest>();
-    let denialStage: BizzbloxSyntheticDenialStage = 'iam_context';
+    let denialStage: BizzbloxSyntheticDenialStage = 'iam_missing';
     try {
       const iam = request.bizzbloxIam;
-      if (
-        iam?.accountId !== this.config.accountId ||
-        iam.principalArn !== this.config.bridgePrincipalArn
-      ) {
+      if (!iam) {
+        throw new UnauthorizedException();
+      }
+      denialStage = 'iam_account';
+      if (iam.accountId !== this.config.accountId) {
+        throw new UnauthorizedException();
+      }
+      denialStage = 'iam_principal';
+      if (iam.principalArn !== this.config.bridgePrincipalArn) {
         throw new UnauthorizedException();
       }
 
