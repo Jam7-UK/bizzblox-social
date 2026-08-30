@@ -1,4 +1,4 @@
-import { builtinModules } from 'node:module';
+import { builtinModules, createRequire } from 'node:module';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { resolve, relative } from 'node:path';
 
@@ -34,6 +34,7 @@ for (const directory of buildDirectories) {
 }
 
 const missing = new Map();
+const unresolvedLocal = new Map();
 for (const file of buildDirectories.flatMap((directory) =>
   files(resolve(root, directory))
 )) {
@@ -41,12 +42,17 @@ for (const file of buildDirectories.flatMap((directory) =>
   const matches = body.matchAll(/require\((?:'([^']+)'|"([^"]+)")\)/g);
   for (const match of matches) {
     const specifier = match[1] ?? match[2];
-    if (
-      !specifier ||
-      specifier.startsWith('.') ||
-      specifier.startsWith('/') ||
-      builtins.has(specifier)
-    ) {
+    if (!specifier || specifier.startsWith('/') || builtins.has(specifier)) {
+      continue;
+    }
+    if (specifier.startsWith('.')) {
+      try {
+        createRequire(file).resolve(specifier);
+      } catch {
+        const consumers = unresolvedLocal.get(specifier) ?? [];
+        consumers.push(relative(root, file));
+        unresolvedLocal.set(specifier, consumers);
+      }
       continue;
     }
     const dependency = packageName(specifier);
@@ -58,15 +64,26 @@ for (const file of buildDirectories.flatMap((directory) =>
   }
 }
 
-if (missing.size > 0) {
-  const details = [...missing.entries()]
+if (missing.size > 0 || unresolvedLocal.size > 0) {
+  const externalDetails = [...missing.entries()]
     .map(
       ([dependency, consumers]) =>
         `${dependency}: ${[...new Set(consumers)].slice(0, 3).join(', ')}`
     )
     .join('\n');
+  const localDetails = [...unresolvedLocal.entries()]
+    .map(
+      ([specifier, consumers]) =>
+        `${specifier}: ${[...new Set(consumers)].slice(0, 3).join(', ')}`
+    )
+    .join('\n');
   throw new Error(
-    `Production runtime dependencies are incomplete:\n${details}`
+    `Production runtime dependencies are incomplete:\n${[
+      externalDetails,
+      localDetails,
+    ]
+      .filter(Boolean)
+      .join('\n')}`
   );
 }
 
