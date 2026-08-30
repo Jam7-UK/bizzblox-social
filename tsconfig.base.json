@@ -37,7 +37,7 @@
       "@gitroom/orchestrator/*": ["apps/orchestrator/src/*"],
       "@gitroom/extension/*": ["apps/extension/src/*"],
       "@bizzblox/postiz-agent-client": [
-        "libraries/postiz-agent-client/src/index.ts"
+        "libraries/postiz-agent-client/src/index"
       ]
     }
   },
