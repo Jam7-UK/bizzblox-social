@@ -583,9 +583,11 @@ export class BizzbloxConnectionsService {
     }>
   ) {
     let state: BizzbloxAuthorizationState | null = null;
+    const failedRedirectUrl = new URL(this.config.ampReturnUrl);
+    failedRedirectUrl.searchParams.set('social', 'failed');
     const failed = Object.freeze({
       outcome: 'failed' as const,
-      redirectUrl: this.config.ampReturnUrl,
+      redirectUrl: failedRedirectUrl.toString(),
     });
     try {
       const provider = providerIdentifier(input.provider);

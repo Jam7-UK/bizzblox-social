@@ -326,7 +326,7 @@ describe('BizzBLOX managed social consent', () => {
     });
     expect(replay).toEqual({
       outcome: 'failed',
-      redirectUrl: 'https://mvp.bizzblox.com/settings/social',
+      redirectUrl: 'https://mvp.bizzblox.com/settings/social?social=failed',
     });
     expect(providers.completeAuthorization).toHaveBeenCalledOnce();
     expect(states.saveOutcome).toHaveBeenCalledWith(
