@@ -147,7 +147,7 @@ describe('BizzBLOX service authentication guard', () => {
     await expect(guard.canActivate(executionContext(request))).resolves.toBe(
       true
     );
-    expect(verify).toHaveBeenCalledWith('signed-claim');
+    expect(verify).toHaveBeenCalledWith('signed-claim', 'tenant_opaque_123');
     expect(verifyCredential).not.toHaveBeenCalled();
     expect(consume).toHaveBeenCalledWith(
       'nonce_01J6DCG5GFV2X9PPYF4D8KPWYB',

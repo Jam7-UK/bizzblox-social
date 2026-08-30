@@ -93,6 +93,8 @@ function requiredEnvironment(name: string): string {
 function authConfig(): BizzbloxAuthConfig & {
   issuer: string;
   publicKey: string;
+  smokePublicKey: string;
+  smokeTenantPattern: RegExp;
 } {
   if (process.env.BIZZBLOX_SERVICE_MODE !== '1') {
     throw new Error(
@@ -109,15 +111,31 @@ function authConfig(): BizzbloxAuthConfig & {
   ) {
     throw new Error('Invalid BizzBLOX bridge identity configuration');
   }
+  const publicKey = requiredEnvironment(
+    'BIZZBLOX_OPERATION_CLAIM_PUBLIC_KEY_PEM'
+  )
+    .split('\\n')
+    .join('\n');
+  const smokePublicKey = requiredEnvironment(
+    'BIZZBLOX_SMOKE_OPERATION_CLAIM_PUBLIC_KEY_PEM'
+  )
+    .split('\\n')
+    .join('\n');
+  const smokeTenantPattern = requiredEnvironment(
+    'BIZZBLOX_SMOKE_OPERATION_CLAIM_TENANT_PATTERN'
+  );
+  if (smokeTenantPattern !== '^tenant_synthetic_[A-Za-z0-9_-]{1,103}$') {
+    throw new Error('Invalid BizzBLOX synthetic claim configuration');
+  }
   return Object.freeze({
     accountId,
     audience: 'bizzblox-social',
     bridgePrincipalArn,
     clock: () => new Date(),
     issuer: requiredEnvironment('BIZZBLOX_OPERATION_CLAIM_ISSUER'),
-    publicKey: requiredEnvironment('BIZZBLOX_OPERATION_CLAIM_PUBLIC_KEY_PEM')
-      .split('\\n')
-      .join('\n'),
+    publicKey,
+    smokePublicKey,
+    smokeTenantPattern: new RegExp(smokeTenantPattern),
   });
 }
 
@@ -265,6 +283,8 @@ function connectionStateCodec(): BizzbloxConnectionStateCodec {
         const {
           issuer: _issuer,
           publicKey: _publicKey,
+          smokePublicKey: _smokePublicKey,
+          smokeTenantPattern: _smokeTenantPattern,
           ...config
         } = authConfig();
         return config;
@@ -279,6 +299,10 @@ function connectionStateCodec(): BizzbloxConnectionStateCodec {
           clock: config.clock,
           issuer: config.issuer,
           publicKey: config.publicKey,
+          synthetic: {
+            publicKey: config.smokePublicKey,
+            tenantPattern: config.smokeTenantPattern,
+          },
         });
       },
     },

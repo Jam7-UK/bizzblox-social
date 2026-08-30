@@ -25,7 +25,10 @@ export type BizzbloxOperationClaim = Readonly<{
 }>;
 
 export interface BizzbloxClaimVerifier {
-  verify(compactClaim: string): Promise<BizzbloxOperationClaim>;
+  verify(
+    compactClaim: string,
+    tenantHandle: string
+  ): Promise<BizzbloxOperationClaim>;
 }
 
 export interface BizzbloxReplayStore {
@@ -319,7 +322,10 @@ export class BizzbloxAuthGuard implements CanActivate {
       }
 
       const binding = requestBinding(request);
-      const claim = await this.claimVerifier.verify(binding.claim);
+      const claim = await this.claimVerifier.verify(
+        binding.claim,
+        binding.tenantHandle
+      );
       const now = Math.floor(this.config.clock().getTime() / 1000);
       if (
         claim.audience !== this.config.audience ||
