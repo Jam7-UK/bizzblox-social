@@ -5,6 +5,7 @@ import {
   ExecutionContext,
   Inject,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 
@@ -68,6 +69,28 @@ export type BizzbloxVerifiedRequest = {
     tenantHandle: string;
   }>;
 };
+
+type BizzbloxSyntheticDenialStage =
+  | 'iam_context'
+  | 'request_binding'
+  | 'claim_verification'
+  | 'claim_audience'
+  | 'claim_lifetime'
+  | 'claim_operation'
+  | 'claim_request_digest'
+  | 'claim_tenant_hash'
+  | 'claim_connector_revision'
+  | 'claim_nonce'
+  | 'tenant_credential'
+  | 'claim_replay';
+
+function isSyntheticSmokeRequest(request: BizzbloxVerifiedRequest): boolean {
+  const tenantHandle = request.headers['x-bizzblox-tenant-handle'];
+  return (
+    typeof tenantHandle === 'string' &&
+    /^tenant_synthetic_[A-Za-z0-9_-]{1,103}$/.test(tenantHandle)
+  );
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -309,10 +332,11 @@ export class BizzbloxAuthGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    const request = context
+      .switchToHttp()
+      .getRequest<BizzbloxVerifiedRequest>();
+    let denialStage: BizzbloxSyntheticDenialStage = 'iam_context';
     try {
-      const request = context
-        .switchToHttp()
-        .getRequest<BizzbloxVerifiedRequest>();
       const iam = request.bizzbloxIam;
       if (
         iam?.accountId !== this.config.accountId ||
@@ -321,28 +345,52 @@ export class BizzbloxAuthGuard implements CanActivate {
         throw new UnauthorizedException();
       }
 
+      denialStage = 'request_binding';
       const binding = requestBinding(request);
+      denialStage = 'claim_verification';
       const claim = await this.claimVerifier.verify(
         binding.claim,
         binding.tenantHandle
       );
       const now = Math.floor(this.config.clock().getTime() / 1000);
+      denialStage = 'claim_audience';
+      if (claim.audience !== this.config.audience) {
+        throw new UnauthorizedException();
+      }
+      denialStage = 'claim_lifetime';
       if (
-        claim.audience !== this.config.audience ||
         claim.expiresAt <= now ||
         claim.expiresAt > claim.issuedAt + 120 ||
         claim.issuedAt < now - 120 ||
-        claim.issuedAt > now + 30 ||
-        claim.operation !== binding.operation ||
-        claim.requestDigest !== binding.digest ||
-        claim.tenantHandleHash !== sha256(binding.tenantHandle) ||
-        !Number.isInteger(claim.connectorRevision) ||
-        claim.connectorRevision <= 0 ||
-        !claim.nonce
+        claim.issuedAt > now + 30
       ) {
         throw new UnauthorizedException();
       }
+      denialStage = 'claim_operation';
+      if (claim.operation !== binding.operation) {
+        throw new UnauthorizedException();
+      }
+      denialStage = 'claim_request_digest';
+      if (claim.requestDigest !== binding.digest) {
+        throw new UnauthorizedException();
+      }
+      denialStage = 'claim_tenant_hash';
+      if (claim.tenantHandleHash !== sha256(binding.tenantHandle)) {
+        throw new UnauthorizedException();
+      }
+      denialStage = 'claim_connector_revision';
+      if (
+        !Number.isInteger(claim.connectorRevision) ||
+        claim.connectorRevision <= 0
+      ) {
+        throw new UnauthorizedException();
+      }
+      denialStage = 'claim_nonce';
+      if (!claim.nonce) {
+        throw new UnauthorizedException();
+      }
 
+      denialStage = 'tenant_credential';
       const tenant =
         claim.operation !== 'tenant.ensure' && binding.credential
           ? await this.tenantAccess.verifyCredential(
@@ -356,6 +404,7 @@ export class BizzbloxAuthGuard implements CanActivate {
       ) {
         throw new UnauthorizedException();
       }
+      denialStage = 'claim_replay';
       if (!(await this.replayStore.consume(claim.nonce, claim.expiresAt))) {
         throw new UnauthorizedException();
       }
@@ -369,6 +418,12 @@ export class BizzbloxAuthGuard implements CanActivate {
       });
       return true;
     } catch {
+      if (isSyntheticSmokeRequest(request)) {
+        Logger.warn(
+          `BizzBLOX synthetic authorization denied at ${denialStage}.`,
+          BizzbloxAuthGuard.name
+        );
+      }
       throw new UnauthorizedException();
     }
   }
