@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import type { ExecutionContext } from '@nestjs/common';
+import { Logger, type ExecutionContext } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -29,6 +29,70 @@ function digestRequest(body: unknown, method: string, path: string): string {
 }
 
 describe('BizzBLOX service authentication guard', () => {
+  it('logs only a bounded denial stage for synthetic smoke requests', async () => {
+    const warn = vi.spyOn(Logger, 'warn').mockImplementation(() => undefined);
+    const tenantHandle = 'tenant_synthetic_release_33326519826_2';
+    const body = {
+      provider: 'nostr',
+      userBinding: 'user_synthetic_release_33326519826_2',
+    };
+    const verify = vi.fn<BizzbloxClaimVerifier['verify']>().mockResolvedValue({
+      audience: 'bizzblox-social',
+      connectorRevision: 1,
+      expiresAt: 1787860890,
+      issuedAt: 1787860800,
+      nonce: 'nonce_01J6DCG5GFV2X9PPYF4D8KPWYB',
+      operation: 'connection.begin',
+      requestDigest: '0'.repeat(64),
+      tenantHandleHash: createHash('sha256').update(tenantHandle).digest('hex'),
+    });
+    const request: BizzbloxVerifiedRequest = {
+      body,
+      bizzbloxIam: {
+        accountId: '495599735993',
+        principalArn: 'arn:aws:iam::495599735993:role/BizzbloxSocialBridge',
+      },
+      headers: {
+        'x-bizzblox-operation-claim': 'sensitive-signed-claim',
+        'x-bizzblox-tenant-credential': 'sensitive-tenant-credential',
+        'x-bizzblox-tenant-handle': tenantHandle,
+      },
+      method: 'POST',
+      originalUrl: '/internal/bizzblox/v1/connections:begin',
+    };
+    const guard = new BizzbloxAuthGuard(
+      { verify },
+      { consume: vi.fn().mockResolvedValue(true) },
+      {
+        verifyCredential: vi.fn().mockResolvedValue({
+          connectorRevision: 1,
+          credentialVersion: 1,
+          organizationId: 'sensitive-organization-id',
+        }),
+      },
+      {
+        accountId: '495599735993',
+        audience: 'bizzblox-social',
+        bridgePrincipalArn:
+          'arn:aws:iam::495599735993:role/BizzbloxSocialBridge',
+        clock: () => new Date('2026-08-27T20:00:00.000Z'),
+      }
+    );
+
+    await expect(
+      guard.canActivate(executionContext(request))
+    ).rejects.toMatchObject({ status: 401 });
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith(
+      'BizzBLOX synthetic authorization denied at claim_request_digest.',
+      BizzbloxAuthGuard.name
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toMatch(
+      /sensitive|tenant_synthetic|nostr/
+    );
+    warn.mockRestore();
+  });
+
   it('binds an exact binary media body and metadata to the signed claim', async () => {
     const bytes = Buffer.from([1, 2, 3, 4]);
     const checksumSha256 = createHash('sha256').update(bytes).digest('hex');
