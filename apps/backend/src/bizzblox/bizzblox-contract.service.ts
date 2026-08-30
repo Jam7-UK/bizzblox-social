@@ -138,6 +138,7 @@ const SECRET_KEY_SUFFIXES = Object.freeze([
   'token',
   'jwt',
 ]);
+const NO_ADDITIONAL_SETTINGS = 'No additional settings required';
 
 function isSecretKey(key: string): boolean {
   const normalized = key.replace(/[^A-Za-z0-9]/g, '').toLowerCase();
@@ -227,6 +228,38 @@ function contractProjection(
   });
 }
 
+function channelSettingsProjection(
+  refs: BizzbloxOpaqueRefs,
+  organizationId: string,
+  channel: BizzbloxManagedChannelRecord,
+  contract: ProviderContract
+) {
+  const projection = contractProjection(
+    refs,
+    organizationId,
+    channel,
+    contract
+  );
+  const providerSchema = isRecord(projection.settings)
+    ? projection.settings
+    : projection.settings === NO_ADDITIONAL_SETTINGS
+    ? Object.freeze({})
+    : null;
+  if (!providerSchema) {
+    throw new BizzbloxContractInputError(
+      'Provider settings contract has an unsupported shape.'
+    );
+  }
+  return Object.freeze({
+    providerSchema,
+    helpers: Object.freeze(
+      projection.helpers.map(({ helperRef, ...helper }) =>
+        Object.freeze({ ref: helperRef, ...helper })
+      )
+    ),
+  });
+}
+
 function validToolData(
   value: Readonly<Record<string, string>>
 ): Readonly<Record<string, string>> {
@@ -298,20 +331,27 @@ export class BizzbloxContractService {
     );
     return Object.freeze({
       channels: Object.freeze(
-        integrations.map((integration) => {
+        integrations.map((integration, index) => {
           const channel = byIntegration.get(integration.id);
           if (!channel) {
             throw new Error('Managed social channel synchronization failed.');
           }
-          return this.channelProjection(integration, channel);
+          return this.channelProjection(
+            organizationId,
+            integration,
+            channel,
+            contracts[index]
+          );
         })
       ),
     });
   }
 
   private channelProjection(
+    organizationId: string,
     integration: IntegrationSummary,
-    channel: BizzbloxManagedChannelRecord
+    channel: BizzbloxManagedChannelRecord,
+    contract: ProviderContract
   ) {
     return Object.freeze({
       channelHandle: channel.channelHandle,
@@ -320,6 +360,12 @@ export class BizzbloxContractService {
       provider: integration.identifier.slice(0, 200),
       displayName: integration.name.slice(0, 500),
       picture: integration.picture?.slice(0, 2_000) ?? null,
+      settingsProjection: channelSettingsProjection(
+        this.refs,
+        organizationId,
+        channel,
+        contract
+      ),
       status: channel.status,
     });
   }

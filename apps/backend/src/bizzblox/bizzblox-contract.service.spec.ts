@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { PostizAgentClient } from '@bizzblox/postiz-agent-client';
+import type {
+  PostizAgentClient,
+  ProviderContract,
+} from '@bizzblox/postiz-agent-client';
 
 import {
   BizzbloxContractService,
@@ -23,7 +26,7 @@ const linkedinContract = Object.freeze({
   ]),
 });
 
-function setup() {
+function setup(contract: ProviderContract = linkedinContract) {
   const client = {
     listIntegrations: vi.fn().mockResolvedValue([
       {
@@ -34,7 +37,7 @@ function setup() {
         disabled: false,
       },
     ]),
-    getIntegrationSettings: vi.fn().mockResolvedValue(linkedinContract),
+    getIntegrationSettings: vi.fn().mockResolvedValue(contract),
     triggerIntegrationTool: vi.fn().mockResolvedValue({
       organizations: [{ id: 'provider-page-1', name: 'Jam 7' }],
       access_token: 'must-never-leak',
@@ -102,10 +105,22 @@ describe('BizzBLOX live social contracts', () => {
         connectorRevision: 7,
         displayName: 'Jam 7',
         provider: 'linkedin-page',
+        settingsProjection: {
+          providerSchema: { audience: { type: 'string' } },
+          helpers: [
+            {
+              ref: 'bbx_help_choose_organization',
+              label: 'Choose organization',
+              description: 'Lists the organizations available to this account.',
+              dataSchema: { type: 'object' },
+            },
+          ],
+        },
         status: 'active',
       }),
     ]);
     expect(JSON.stringify(result)).not.toContain('integration-linkedin-1');
+    expect(JSON.stringify(result)).not.toContain('listOrganizations');
     expect(directory.synchronize).toHaveBeenCalledWith('postiz-org-1', 7, [
       expect.objectContaining({
         channelHandle: 'bbx_ch_exact_linkedin',
@@ -148,6 +163,17 @@ describe('BizzBLOX live social contracts', () => {
         connectorRevision: 7,
       })
     );
+  });
+
+  it('normalizes the provider no-settings sentinel to an empty schema', async () => {
+    const { service } = setup({
+      ...linkedinContract,
+      settings: 'No additional settings required',
+    });
+
+    const result = await service.listChannels('postiz-org-1', 7);
+
+    expect(result.channels[0]?.settingsProjection.providerSchema).toEqual({});
   });
 
   it('executes only a helper from the current contract and scrubs secret-shaped output', async () => {
