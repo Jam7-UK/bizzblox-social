@@ -7,7 +7,13 @@ import {
   type RestoreDatabaseQueryClient,
 } from './bizzblox-database-restore-probe';
 
-function queryClient(options?: Readonly<{ failCount?: boolean }>) {
+function queryClient(
+  options?: Readonly<{
+    columnDefault?: string | null;
+    failCount?: boolean;
+    schemaDefinition?: string;
+  }>
+) {
   const connect = vi.fn().mockResolvedValue(undefined);
   const disconnect = vi.fn().mockResolvedValue(undefined);
   const query = vi.fn(async (statement: string) => {
@@ -20,6 +26,13 @@ function queryClient(options?: Readonly<{ failCount?: boolean }>) {
           schemaName: 'public',
           tableName: 'Organization',
           type: 'text',
+          defaultValue: options?.columnDefault ?? null,
+          generated: false,
+          generationExpression: null,
+          identity: false,
+          identityGeneration: null,
+          udtName: 'text',
+          udtSchema: 'pg_catalog',
         },
         {
           name: 'name',
@@ -28,6 +41,24 @@ function queryClient(options?: Readonly<{ failCount?: boolean }>) {
           schemaName: 'public',
           tableName: 'Organization',
           type: 'text',
+          defaultValue: null,
+          generated: false,
+          generationExpression: null,
+          identity: false,
+          identityGeneration: null,
+          udtName: 'text',
+          udtSchema: 'pg_catalog',
+        },
+      ];
+    }
+    if (statement.includes('"pg_constraint"')) {
+      return [
+        {
+          definition: options?.schemaDefinition ?? 'PRIMARY KEY (id)',
+          kind: 'constraint',
+          objectName: 'Organization_pkey',
+          relationName: 'Organization',
+          schemaName: 'public',
         },
       ];
     }
@@ -45,14 +76,7 @@ function queryClient(options?: Readonly<{ failCount?: boolean }>) {
       ];
     }
     if (statement.includes('"_prisma_migrations"')) {
-      return [
-        {
-          checksum: 'a'.repeat(64),
-          finished: true,
-          name: '202608280001_initial',
-          rolledBack: false,
-        },
-      ];
+      throw new Error('prisma db push does not create a migration ledger');
     }
     if (statement.includes('"schema_version"')) {
       return [
@@ -109,7 +133,7 @@ describe('BizzBLOX database restore probe adapter', () => {
     expect(disconnect).toHaveBeenCalledTimes(1);
   });
 
-  it('collects application schema, migration, and table-cardinality evidence', async () => {
+  it('derives db-push schema state without querying a nonexistent migration ledger', async () => {
     const { client, connect, disconnect, query } = queryClient();
 
     const result = await collectDatabaseRestoreSnapshot('application', client);
@@ -124,14 +148,18 @@ describe('BizzBLOX database restore probe adapter', () => {
     expect(result.migrationDigest).toMatch(/^[a-f0-9]{64}$/);
     expect(connect).toHaveBeenCalledTimes(1);
     expect(disconnect).toHaveBeenCalledTimes(1);
-    expect(query.mock.calls.map(([statement]) => statement)).toEqual(
+    const statements = query.mock.calls.map(([statement]) => statement);
+    expect(statements).toEqual(
       expect.arrayContaining([
         expect.stringContaining('"information_schema"."columns"'),
         expect.stringContaining('COUNT(*)'),
         expect.stringContaining('"bizzblox_restore_canary"'),
-        expect.stringContaining('"_prisma_migrations"'),
+        expect.stringContaining('"pg_catalog"."pg_constraint"'),
+        expect.stringContaining('"pg_catalog"."pg_enum"'),
+        expect.stringContaining('"pg_catalog"."pg_indexes"'),
       ])
     );
+    expect(statements.join('\n')).not.toContain('"_prisma_migrations"');
   });
 
   it('rejects a restored database with a missing durable canary', async () => {
@@ -141,12 +169,19 @@ describe('BizzBLOX database restore probe adapter', () => {
       if (statement.includes('"information_schema"."columns"')) {
         return [
           {
+            defaultValue: null,
+            generated: false,
+            generationExpression: null,
+            identity: false,
+            identityGeneration: null,
             name: 'id',
             nullable: false,
             ordinal: 1,
             schemaName: 'public',
             tableName: 'Organization',
             type: 'text',
+            udtName: 'text',
+            udtSchema: 'pg_catalog',
           },
         ];
       }
@@ -169,6 +204,31 @@ describe('BizzBLOX database restore probe adapter', () => {
     ).rejects.toBeInstanceOf(RestoreProbeError);
   });
 
+  it('changes db-push evidence for defaults, enums, constraints, or indexes', async () => {
+    const baseline = await collectDatabaseRestoreSnapshot(
+      'application',
+      queryClient().client
+    );
+    const changedDefault = await collectDatabaseRestoreSnapshot(
+      'application',
+      queryClient({ columnDefault: "'draft'::text" }).client
+    );
+    const changedSchemaObject = await collectDatabaseRestoreSnapshot(
+      'application',
+      queryClient({
+        schemaDefinition: 'UNIQUE (name)',
+      }).client
+    );
+
+    expect(
+      new Set([
+        baseline.migrationDigest,
+        changedDefault.migrationDigest,
+        changedSchemaObject.migrationDigest,
+      ])
+    ).toHaveLength(3);
+  });
+
   it('derives Temporal migration evidence from its schema-version record', async () => {
     const { client } = queryClient();
 
@@ -186,12 +246,19 @@ describe('BizzBLOX database restore probe adapter', () => {
     const { client } = queryClient();
     client.query.mockImplementationOnce(async () => [
       {
+        defaultValue: null,
+        generated: false,
+        generationExpression: null,
+        identity: false,
+        identityGeneration: null,
         name: 'id',
         nullable: false,
         ordinal: 1,
         schemaName: 'public',
         tableName: 'unsafe"; DROP TABLE x; --',
         type: 'text',
+        udtName: 'text',
+        udtSchema: 'pg_catalog',
       },
     ]);
 
