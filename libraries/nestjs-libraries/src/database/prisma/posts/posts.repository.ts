@@ -523,6 +523,7 @@ export class PostsRepository {
     const group = keepGroup && body.group ? body.group : uuid;
 
     for (const value of body.value) {
+      const postId = value.id || uuidv4();
       const updateData = (type: 'create' | 'update') => ({
         publishDate: dayjs(date).toDate(),
         integration: {
@@ -570,9 +571,9 @@ export class PostsRepository {
       posts.push(
         await this._post.model.post.upsert({
           where: {
-            id: value.id || uuidv4(),
+            id: postId,
           },
-          create: { ...updateData('create') },
+          create: { id: postId, ...updateData('create') },
           update: {
             ...updateData('update'),
             lastMessage: {
