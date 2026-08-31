@@ -543,6 +543,9 @@ export class PostsService {
 
   async getPost(orgId: string, id: string, convertToJPEG = false) {
     const posts = await this.getPostsRecursively(id, true, orgId, true);
+    if (posts.length === 0) {
+      throw new NotFoundException('Post not found');
+    }
     const list = {
       group: posts?.[0]?.group,
       posts: await Promise.all(
