@@ -2,6 +2,7 @@ import {
   GetObjectAttributesCommand,
   PutObjectCommand,
 } from '@aws-sdk/client-s3';
+import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 
 import { RestoreProbeError } from './bizzblox-restore-probe';
@@ -20,6 +21,29 @@ const databaseCanary = {
 };
 
 describe('BizzBLOX restore canary bootstrap', () => {
+  it('keeps the durable canary in the Prisma schema managed by production pushes', () => {
+    const schema = readFileSync(
+      new URL(
+        '../../../../libraries/nestjs-libraries/src/database/prisma/schema.prisma',
+        import.meta.url
+      ),
+      'utf8'
+    );
+    const model = schema.match(
+      /model BizzbloxRestoreCanary \{[\s\S]*?\n\}/
+    )?.[0];
+
+    expect(model).toContain('id               String   @id');
+    expect(model).toContain('checksum         String   @db.Char(64)');
+    expect(model).toContain(
+      'expectedManifest Json?    @map("expected_manifest")'
+    );
+    expect(model).toContain(
+      'updatedAt        DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)'
+    );
+    expect(model).toContain('@@map("bizzblox_restore_canary")');
+  });
+
   it('idempotently persists and reads back the fixed database canary', async () => {
     const execute = vi.fn().mockResolvedValue(1);
     const query = vi.fn().mockResolvedValue([databaseCanary]);

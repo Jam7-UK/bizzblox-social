@@ -74,6 +74,18 @@ model BizzbloxTenant {
   @@index([updatedAt])
 }
 
+// The production schema task owns this table alongside the restore-validation
+// bootstrap. Declaring it here prevents `prisma db push` from dropping the
+// non-empty canary before a runtime rollout.
+model BizzbloxRestoreCanary {
+  id               String   @id
+  checksum         String   @db.Char(64)
+  expectedManifest Json?    @map("expected_manifest")
+  updatedAt        DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("bizzblox_restore_canary")
+}
+
 model BizzbloxChannel {
   id                    String       @id @default(uuid())
   organizationId        String
