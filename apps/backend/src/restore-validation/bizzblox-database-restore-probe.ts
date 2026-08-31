@@ -22,12 +22,27 @@ export type RestoreDatabaseQueryClient = Readonly<{
 }>;
 
 type ColumnRow = Readonly<{
+  defaultValue: string | null;
+  generated: boolean;
+  generationExpression: string | null;
+  identity: boolean;
+  identityGeneration: string | null;
   name: string;
   nullable: boolean;
   ordinal: number;
   schemaName: string;
   tableName: string;
   type: string;
+  udtName: string;
+  udtSchema: string;
+}>;
+
+type SchemaObjectRow = Readonly<{
+  definition: string;
+  kind: 'constraint' | 'enum' | 'index';
+  objectName: string;
+  relationName: string;
+  schemaName: string;
 }>;
 
 type MigrationProbe = Readonly<{
@@ -40,6 +55,7 @@ type MigrationProbe = Readonly<{
 const POSTGRES_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_$]{0,62}$/;
 const MAX_TABLES = 512;
 const MAX_COLUMNS = 4_096;
+const MAX_SCHEMA_OBJECTS = 8_192;
 
 function fail(): never {
   throw new RestoreProbeError();
@@ -62,6 +78,11 @@ function text(value: unknown, maxBytes = 256): string {
     return fail();
   }
   return value;
+}
+
+function optionalText(value: unknown, maxBytes = 256): string | null {
+  if (value === null) return null;
+  return text(value, maxBytes);
 }
 
 function identifier(value: unknown): string {
@@ -117,41 +138,98 @@ function columnRows(rows: readonly unknown[]): readonly ColumnRow[] {
     rows.map((value) => {
       const row = record(value);
       return Object.freeze({
+        defaultValue: optionalText(row.defaultValue, 8_192),
+        generated: boolean(row.generated),
+        generationExpression: optionalText(row.generationExpression, 8_192),
+        identity: boolean(row.identity),
+        identityGeneration: optionalText(row.identityGeneration, 32),
         name: identifier(row.name),
         nullable: boolean(row.nullable),
         ordinal: positiveInteger(row.ordinal),
         schemaName: identifier(row.schemaName),
         tableName: identifier(row.tableName),
         type: text(row.type),
+        udtName: identifier(row.udtName),
+        udtSchema: identifier(row.udtSchema),
       });
     })
   );
 }
 
-async function applicationMigrations(
-  client: RestoreDatabaseQueryClient
+async function applicationSchemaState(
+  client: RestoreDatabaseQueryClient,
+  columns: readonly ColumnRow[]
 ): Promise<readonly MigrationProbe[]> {
+  // This application intentionally deploys with `prisma db push`, which has no
+  // migration ledger. The complete bounded catalog state used by Prisma is the
+  // durable evidence that the restore manifest pins and compares after recovery.
   const rows = await client.query(`
     SELECT
-      "migration_name" AS "name",
-      "checksum",
-      "finished_at" IS NOT NULL AS "finished",
-      "rolled_back_at" IS NOT NULL AS "rolledBack"
-    FROM "public"."_prisma_migrations"
-    ORDER BY "migration_name"
+      'constraint'::text AS "kind",
+      n."nspname" AS "schemaName",
+      r."relname" AS "relationName",
+      c."conname" AS "objectName",
+      pg_catalog.pg_get_constraintdef(c."oid", true) AS "definition"
+    FROM "pg_catalog"."pg_constraint" c
+    INNER JOIN "pg_catalog"."pg_class" r ON r."oid" = c."conrelid"
+    INNER JOIN "pg_catalog"."pg_namespace" n ON n."oid" = r."relnamespace"
+    WHERE n."nspname" NOT IN ('pg_catalog', 'information_schema')
+      AND n."nspname" NOT LIKE 'pg_%'
+    UNION ALL
+    SELECT
+      'index'::text AS "kind",
+      i."schemaname" AS "schemaName",
+      i."tablename" AS "relationName",
+      i."indexname" AS "objectName",
+      i."indexdef" AS "definition"
+    FROM "pg_catalog"."pg_indexes" i
+    WHERE i."schemaname" NOT IN ('pg_catalog', 'information_schema')
+      AND i."schemaname" NOT LIKE 'pg_%'
+    UNION ALL
+    SELECT
+      'enum'::text AS "kind",
+      n."nspname" AS "schemaName",
+      t."typname" AS "relationName",
+      e."enumlabel" AS "objectName",
+      e."enumsortorder"::text AS "definition"
+    FROM "pg_catalog"."pg_type" t
+    INNER JOIN "pg_catalog"."pg_namespace" n ON n."oid" = t."typnamespace"
+    INNER JOIN "pg_catalog"."pg_enum" e ON e."enumtypid" = t."oid"
+    WHERE n."nspname" NOT IN ('pg_catalog', 'information_schema')
+      AND n."nspname" NOT LIKE 'pg_%'
+    ORDER BY 1, 2, 3, 4, 5
   `);
-  if (rows.length === 0 || rows.length > 2_048) return fail();
-  return Object.freeze(
+  if (rows.length === 0 || rows.length > MAX_SCHEMA_OBJECTS) return fail();
+  const objects: readonly SchemaObjectRow[] = Object.freeze(
     rows.map((value) => {
       const row = record(value);
+      if (!['constraint', 'enum', 'index'].includes(String(row.kind ?? '')))
+        return fail();
       return Object.freeze({
-        checksum: text(row.checksum, 64),
-        finished: boolean(row.finished),
-        name: text(row.name),
-        rolledBack: boolean(row.rolledBack),
+        definition: text(row.definition, 32_768),
+        kind: row.kind as SchemaObjectRow['kind'],
+        objectName: text(row.objectName),
+        relationName: identifier(row.relationName),
+        schemaName: identifier(row.schemaName),
       });
     })
   );
+  const catalog = {
+    columns: [...columns].sort((left, right) =>
+      JSON.stringify(left).localeCompare(JSON.stringify(right))
+    ),
+    objects: [...objects].sort((left, right) =>
+      JSON.stringify(left).localeCompare(JSON.stringify(right))
+    ),
+  };
+  return Object.freeze([
+    Object.freeze({
+      checksum: sha256(JSON.stringify(catalog)),
+      finished: true,
+      name: 'prisma-db-push:catalog-v2',
+      rolledBack: false,
+    }),
+  ]);
 }
 
 async function temporalMigrations(
@@ -222,7 +300,14 @@ async function collect(
         c."column_name" AS "name",
         c."ordinal_position"::int AS "ordinal",
         c."data_type" AS "type",
-        c."is_nullable" = 'YES' AS "nullable"
+        c."udt_schema" AS "udtSchema",
+        c."udt_name" AS "udtName",
+        c."column_default" AS "defaultValue",
+        c."is_nullable" = 'YES' AS "nullable",
+        c."is_identity" = 'YES' AS "identity",
+        c."identity_generation" AS "identityGeneration",
+        c."is_generated" = 'ALWAYS' AS "generated",
+        c."generation_expression" AS "generationExpression"
       FROM "information_schema"."columns" c
       INNER JOIN "information_schema"."tables" t
         ON t."table_schema" = c."table_schema"
@@ -274,7 +359,7 @@ async function collect(
   }
   const migrations =
     kind === 'application'
-      ? await applicationMigrations(client)
+      ? await applicationSchemaState(client, columns)
       : await temporalMigrations(client);
   const canaryVerified = await databaseCanary(client);
   return buildDatabaseRestoreSnapshot({
