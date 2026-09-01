@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 
 import type { JsonValue } from '@bizzblox/postiz-agent-client';
 
+import type { BizzbloxSocialEnvironment } from './bizzblox-environment';
 import {
   BIZZBLOX_CHANNEL_DIRECTORY,
   BIZZBLOX_OPAQUE_REFS,
@@ -120,6 +121,7 @@ export interface BizzbloxConnectionProviderGateway {
 export type BizzbloxAuthorizationState = Readonly<{
   organizationId: string;
   connectorRevision: number;
+  environment: BizzbloxSocialEnvironment;
   provider: string;
   codeVerifier: string;
   ampReturnUrl: string;
@@ -132,6 +134,7 @@ export type BizzbloxAuthorizationState = Readonly<{
 export type BizzbloxSelectionState = Readonly<{
   organizationId: string;
   connectorRevision: number;
+  environment: BizzbloxSocialEnvironment;
   userBinding?: string;
   provider: string;
   integrationId: string;
@@ -166,6 +169,7 @@ export type BizzbloxConnectionOutcomeResult =
 export type BizzbloxConnectionOutcomeState = Readonly<{
   organizationId: string;
   connectorRevision: number;
+  environment: BizzbloxSocialEnvironment;
   userBinding: string;
   expiresAt: number;
   result: BizzbloxConnectionOutcomeResult;
@@ -186,6 +190,7 @@ export interface BizzbloxConnectionStateStore {
   consumeSelection(
     organizationId: string,
     connectorRevision: number,
+    environment: BizzbloxSocialEnvironment,
     attemptHandle: string
   ): Promise<BizzbloxSelectionState | null>;
   saveOutcome?(
@@ -195,13 +200,14 @@ export interface BizzbloxConnectionStateStore {
   consumeOutcome?(
     organizationId: string,
     connectorRevision: number,
+    environment: BizzbloxSocialEnvironment,
     userBinding: string,
     outcomeHandle: string
   ): Promise<BizzbloxConnectionOutcomeState | null>;
 }
 
 export type BizzbloxConnectionConfig = Readonly<{
-  ampReturnUrl: string;
+  ampReturnUrls: Readonly<Record<BizzbloxSocialEnvironment, string>>;
   clock: () => Date;
   createOpaqueHandle?: () => string;
   publicOrigin: string;
@@ -258,25 +264,35 @@ function opaqueOutcomeHandle(value: string): string {
 
 function validatedConfig(config: BizzbloxConnectionConfig) {
   const publicOrigin = new URL(config.publicOrigin);
-  const ampReturnUrl = new URL(config.ampReturnUrl);
   if (
     publicOrigin.protocol !== 'https:' ||
     publicOrigin.origin !== 'https://social.bizzblox.com' ||
     publicOrigin.pathname !== '/' ||
     publicOrigin.search ||
-    publicOrigin.hash ||
-    ampReturnUrl.protocol !== 'https:' ||
-    !ampReturnUrl.hostname.endsWith('.bizzblox.com') ||
-    !ampReturnUrl.pathname.startsWith('/settings') ||
-    ampReturnUrl.username ||
-    ampReturnUrl.password ||
-    ampReturnUrl.search ||
-    ampReturnUrl.hash
+    publicOrigin.hash
   ) {
     throw new Error('Invalid BizzBLOX connection redirect configuration.');
   }
+  const ampReturnUrls = Object.fromEntries(
+    Object.entries(config.ampReturnUrls).map(([environment, value]) => {
+      const url = new URL(value);
+      if (
+        url.protocol !== 'https:' ||
+        (!url.hostname.endsWith('.bizzblox.com') &&
+          !url.hostname.endsWith('.jam7.com')) ||
+        url.pathname !== '/settings/social' ||
+        url.username ||
+        url.password ||
+        url.search ||
+        url.hash
+      ) {
+        throw new Error('Invalid BizzBLOX connection redirect configuration.');
+      }
+      return [environment, url.toString()];
+    })
+  ) as Record<BizzbloxSocialEnvironment, string>;
   return Object.freeze({
-    ampReturnUrl: ampReturnUrl.toString(),
+    ampReturnUrls: Object.freeze(ampReturnUrls),
     clock: config.clock,
     createOpaqueHandle: config.createOpaqueHandle ?? randomUUID,
     publicOrigin: publicOrigin.origin,
@@ -350,6 +366,7 @@ export class BizzbloxConnectionsService {
   async reconnect(
     organizationId: string,
     connectorRevision: number,
+    environment: BizzbloxSocialEnvironment,
     input: Readonly<{
       channelHandle: string;
       userBinding?: string;
@@ -454,9 +471,10 @@ export class BizzbloxConnectionsService {
     await this.states.saveAuthorization(authorization.providerState, {
       organizationId,
       connectorRevision,
+      environment,
       provider,
       codeVerifier: authorization.codeVerifier,
-      ampReturnUrl: this.config.ampReturnUrl,
+      ampReturnUrl: this.config.ampReturnUrls[environment],
       expiresAt,
       userBinding,
       outcomeHandle,
@@ -472,6 +490,7 @@ export class BizzbloxConnectionsService {
   async begin(
     organizationId: string,
     connectorRevision: number,
+    environment: BizzbloxSocialEnvironment,
     input: Readonly<{
       provider: string;
       userBinding?: string;
@@ -561,9 +580,10 @@ export class BizzbloxConnectionsService {
     await this.states.saveAuthorization(authorization.providerState, {
       organizationId,
       connectorRevision,
+      environment,
       provider,
       codeVerifier: authorization.codeVerifier,
-      ampReturnUrl: this.config.ampReturnUrl,
+      ampReturnUrl: this.config.ampReturnUrls[environment],
       expiresAt,
       userBinding,
       outcomeHandle,
@@ -583,7 +603,7 @@ export class BizzbloxConnectionsService {
     }>
   ) {
     let state: BizzbloxAuthorizationState | null = null;
-    const failedRedirectUrl = new URL(this.config.ampReturnUrl);
+    const failedRedirectUrl = new URL(this.config.ampReturnUrls.dev);
     failedRedirectUrl.searchParams.set('social', 'failed');
     const failed = Object.freeze({
       outcome: 'failed' as const,
@@ -597,6 +617,7 @@ export class BizzbloxConnectionsService {
       if (
         !state ||
         state.provider !== provider ||
+        state.ampReturnUrl !== this.config.ampReturnUrls[state.environment] ||
         !state.userBinding ||
         !state.outcomeHandle ||
         state.expiresAt <= this.config.clock().getTime()
@@ -657,16 +678,18 @@ export class BizzbloxConnectionsService {
         await this.states.saveSelection(attemptHandle, {
           organizationId: state.organizationId,
           connectorRevision: state.connectorRevision,
+          environment: state.environment,
           provider,
           integrationId: connection.integrationId,
           userBinding,
-          ampReturnUrl: this.config.ampReturnUrl,
+          ampReturnUrl: state.ampReturnUrl,
           expiresAt,
           options,
         });
         await this.states.saveOutcome(outcomeHandle, {
           organizationId: state.organizationId,
           connectorRevision: state.connectorRevision,
+          environment: state.environment,
           userBinding,
           expiresAt: state.expiresAt,
           result: {
@@ -696,6 +719,7 @@ export class BizzbloxConnectionsService {
       await this.states.saveOutcome(outcomeHandle, {
         organizationId: state.organizationId,
         connectorRevision: state.connectorRevision,
+        environment: state.environment,
         userBinding,
         expiresAt: state.expiresAt,
         result: {
@@ -723,6 +747,7 @@ export class BizzbloxConnectionsService {
           await this.states.saveOutcome(outcomeHandle, {
             organizationId: state.organizationId,
             connectorRevision: state.connectorRevision,
+            environment: state.environment,
             userBinding,
             expiresAt: state.expiresAt,
             result: { outcome: 'failed' },
@@ -744,6 +769,7 @@ export class BizzbloxConnectionsService {
   async redeemOutcome(
     organizationId: string,
     connectorRevision: number,
+    environment: BizzbloxSocialEnvironment,
     input: Readonly<{ userBinding: string; outcomeHandle: string }>
   ): Promise<BizzbloxConnectionOutcomeResult> {
     if (!this.states.consumeOutcome) {
@@ -754,6 +780,7 @@ export class BizzbloxConnectionsService {
     const state = await this.states.consumeOutcome(
       organizationId,
       connectorRevision,
+      environment,
       userBinding,
       outcomeHandle
     );
@@ -761,6 +788,7 @@ export class BizzbloxConnectionsService {
       !state ||
       state.organizationId !== organizationId ||
       state.connectorRevision !== connectorRevision ||
+      state.environment !== environment ||
       state.userBinding !== userBinding ||
       state.expiresAt <= this.config.clock().getTime()
     ) {
@@ -774,6 +802,7 @@ export class BizzbloxConnectionsService {
   async select(
     organizationId: string,
     connectorRevision: number,
+    environment: BizzbloxSocialEnvironment,
     input: Readonly<{
       attemptHandle: string;
       optionRef: string;
@@ -788,12 +817,14 @@ export class BizzbloxConnectionsService {
       const state = await this.states.consumeSelection(
         organizationId,
         connectorRevision,
+        environment,
         attemptHandle
       );
       if (
         !state ||
         state.organizationId !== organizationId ||
         state.connectorRevision !== connectorRevision ||
+        state.environment !== environment ||
         state.expiresAt <= this.config.clock().getTime() ||
         !state.userBinding ||
         state.userBinding !== opaqueUserBinding(input.userBinding)

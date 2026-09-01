@@ -2,6 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { BizzbloxOAuthController } from './bizzblox-oauth.controller';
 
+const AMP_RETURN_URLS = {
+  dev: 'https://mvp.bizzblox.com/settings/social',
+  preprod: 'https://preprod.jam7.com/settings/social',
+  prod: 'https://amp.jam7.com/settings/social',
+} as const;
+
 describe('BizzBLOX branded OAuth callback', () => {
   it('redirects only an opaque one-use outcome handle to AMP', async () => {
     const connections = {
@@ -12,7 +18,7 @@ describe('BizzBLOX branded OAuth callback', () => {
       }),
     };
     const controller = new BizzbloxOAuthController(connections as never, {
-      ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
+      ampReturnUrls: AMP_RETURN_URLS,
       clock: () => new Date('2026-08-27T22:02:00.000Z'),
       publicOrigin: 'https://social.bizzblox.com',
     });
@@ -51,7 +57,7 @@ describe('BizzBLOX branded OAuth callback', () => {
       }),
     };
     const controller = new BizzbloxOAuthController(connections as never, {
-      ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
+      ampReturnUrls: AMP_RETURN_URLS,
       clock: () => new Date('2026-08-27T22:02:00.000Z'),
       publicOrigin: 'https://social.bizzblox.com',
     });
@@ -61,6 +67,28 @@ describe('BizzBLOX branded OAuth callback', () => {
     ).resolves.toEqual({
       statusCode: 303,
       url: 'https://mvp.bizzblox.com/settings/social?social=failed',
+    });
+  });
+
+  it('allows only one of the configured environment return URLs', async () => {
+    const connections = {
+      completeCallback: vi.fn().mockResolvedValue({
+        outcome: 'ready',
+        redirectUrl:
+          'https://preprod.jam7.com/settings/social?outcome=opaque-preprod',
+      }),
+    };
+    const controller = new BizzbloxOAuthController(connections as never, {
+      ampReturnUrls: AMP_RETURN_URLS,
+      clock: () => new Date('2026-09-01T07:00:00.000Z'),
+      publicOrigin: 'https://social.bizzblox.com',
+    });
+
+    await expect(
+      controller.callback('linkedin', 'provider-state', 'provider-code')
+    ).resolves.toEqual({
+      statusCode: 303,
+      url: 'https://preprod.jam7.com/settings/social?outcome=opaque-preprod',
     });
   });
 });

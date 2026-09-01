@@ -6,6 +6,9 @@ import {
   type BizzbloxTenantStore,
 } from './bizzblox-tenant.service';
 
+const TENANT_HANDLE = `tenant_${'A'.repeat(43)}-dev`;
+const IDEMPOTENCY_KEY = `idem_${'B'.repeat(43)}-dev`;
+
 describe('BizzBLOX tenant service', () => {
   it('cleans only an exact synthetic smoke tenant through the credential-bound store', async () => {
     const cleanupSynthetic = vi.fn().mockResolvedValue(true);
@@ -86,9 +89,9 @@ describe('BizzBLOX tenant service', () => {
     );
     const input = {
       connectorRevision: 7,
-      externalTenantHandle: 'tenant_opaque_123',
-      idempotencyKey: 'idem_opaque_1234567890',
-      idempotencyVersion: 1 as const,
+      externalTenantHandle: TENANT_HANDLE,
+      idempotencyKey: IDEMPOTENCY_KEY,
+      idempotencyVersion: 2 as const,
     };
 
     await expect(service.ensureTenant(input)).resolves.toEqual({
@@ -96,14 +99,14 @@ describe('BizzBLOX tenant service', () => {
       credentialVersion: 1,
       organizationProvenance: 'orgprov_01J6DCZP6S4XFX58GRY7H6QYJD',
       tenantCredential: 'tenant-clear-secret-000000000001',
-      tenantHandle: 'tenant_opaque_123',
+      tenantHandle: TENANT_HANDLE,
     });
     await expect(service.ensureTenant(input)).resolves.toEqual({
       created: false,
       credentialVersion: 1,
       organizationProvenance: 'orgprov_01J6DCZP6S4XFX58GRY7H6QYJD',
       tenantCredential: 'tenant-clear-secret-000000000001',
-      tenantHandle: 'tenant_opaque_123',
+      tenantHandle: TENANT_HANDLE,
     });
     await expect(service.ensureTenant(input)).rejects.toMatchObject({
       code: 'credential_recovery_exhausted',
@@ -116,7 +119,7 @@ describe('BizzBLOX tenant service', () => {
       connectorRevision: 7,
       credentialHash: 'credential-hash-must-stay-private',
       credentialVersion: 3,
-      externalTenantHandle: 'tenant_opaque_123',
+      externalTenantHandle: TENANT_HANDLE,
       organizationId: 'postiz-org-1',
       organizationProvenance: 'orgprov_01J6DCZP6S4XFX58GRY7H6QYJD',
       payloadDigest: 'payload-digest',
@@ -141,13 +144,39 @@ describe('BizzBLOX tenant service', () => {
       }
     );
 
-    await expect(service.readTenant('tenant_opaque_123')).resolves.toEqual({
+    await expect(service.readTenant(TENANT_HANDLE)).resolves.toEqual({
       found: true,
-      tenantHandle: 'tenant_opaque_123',
+      tenantHandle: TENANT_HANDLE,
       organizationProvenance: 'orgprov_01J6DCZP6S4XFX58GRY7H6QYJD',
     });
-    expect(
-      JSON.stringify(await service.readTenant('tenant_opaque_123'))
-    ).not.toMatch(/credential-hash|recovery-envelope|postiz-org-1/);
+    expect(JSON.stringify(await service.readTenant(TENANT_HANDLE))).not.toMatch(
+      /credential-hash|recovery-envelope|postiz-org-1/
+    );
+  });
+
+  it('rejects a cross-environment idempotency key before creating an organization', async () => {
+    const createOrganization = vi.fn();
+    const ensure = vi.fn();
+    const service = new BizzbloxTenantService(
+      { ensure, read: vi.fn(), cleanupSynthetic: vi.fn() },
+      {
+        generateCredential: () => 'unused',
+        hashCredential: () => 'unused',
+        sealCredential: async () => 'unused',
+        unsealCredential: async () => 'unused',
+      },
+      { createOrganization }
+    );
+
+    await expect(
+      service.ensureTenant({
+        connectorRevision: 7,
+        externalTenantHandle: TENANT_HANDLE,
+        idempotencyKey: `idem_${'B'.repeat(43)}-prod`,
+        idempotencyVersion: 2,
+      })
+    ).rejects.toMatchObject({ code: 'idempotency_conflict' });
+    expect(createOrganization).not.toHaveBeenCalled();
+    expect(ensure).not.toHaveBeenCalled();
   });
 });

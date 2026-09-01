@@ -1,8 +1,10 @@
-import { Equals, IsInt, IsString, Matches } from 'class-validator';
+import { IsIn, IsInt, IsString, Matches } from 'class-validator';
 
 export class EnsureTenantDto {
   @IsString()
-  @Matches(/^tenant_[A-Za-z0-9_-]{8,120}$/)
+  @Matches(
+    /^(?:tenant_[A-Za-z0-9_-]{43}-(?:dev|preprod|prod)|tenant_synthetic_[A-Za-z0-9_-]{1,103})$/
+  )
   externalTenantHandle: string;
 
   @IsString()
@@ -10,6 +12,6 @@ export class EnsureTenantDto {
   idempotencyKey: string;
 
   @IsInt()
-  @Equals(1)
-  idempotencyVersion: 1;
+  @IsIn([1, 2])
+  idempotencyVersion: 1 | 2;
 }

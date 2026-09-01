@@ -17,6 +17,10 @@ import type {
   BizzbloxSelectionState,
 } from './bizzblox-connections.service';
 import { BIZZBLOX_CLOCK } from './bizzblox-clock';
+import {
+  BIZZBLOX_SOCIAL_ENVIRONMENTS,
+  type BizzbloxSocialEnvironment,
+} from './bizzblox-environment';
 import { BIZZBLOX_REDIS } from './bizzblox-replay.store';
 
 export const BIZZBLOX_CONNECTION_STATE_CODEC = Symbol(
@@ -159,12 +163,23 @@ function expiryValue(value: unknown): number {
   return value as number;
 }
 
+function environmentValue(value: unknown): BizzbloxSocialEnvironment {
+  if (
+    typeof value !== 'string' ||
+    !BIZZBLOX_SOCIAL_ENVIRONMENTS.includes(value as BizzbloxSocialEnvironment)
+  ) {
+    throw new Error('Invalid social environment.');
+  }
+  return value as BizzbloxSocialEnvironment;
+}
+
 function returnUrlValue(value: unknown): string {
   const parsed = new URL(stringValue(value, 'AMP return URL'));
   if (
     parsed.protocol !== 'https:' ||
-    !parsed.hostname.endsWith('.bizzblox.com') ||
-    !parsed.pathname.startsWith('/settings') ||
+    (!parsed.hostname.endsWith('.bizzblox.com') &&
+      !parsed.hostname.endsWith('.jam7.com')) ||
+    parsed.pathname !== '/settings/social' ||
     parsed.username ||
     parsed.password ||
     parsed.search ||
@@ -232,6 +247,7 @@ function authorizationState(value: string): BizzbloxAuthorizationState {
   return {
     organizationId: stringValue(parsed.organizationId, 'organization', 256),
     connectorRevision: revisionValue(parsed.connectorRevision),
+    environment: environmentValue(parsed.environment),
     provider,
     codeVerifier: stringValue(parsed.codeVerifier, 'code verifier'),
     ampReturnUrl: returnUrlValue(parsed.ampReturnUrl),
@@ -275,6 +291,7 @@ function selectionState(value: string): BizzbloxSelectionState {
   return {
     organizationId: stringValue(parsed.organizationId, 'organization', 256),
     connectorRevision: revisionValue(parsed.connectorRevision),
+    environment: environmentValue(parsed.environment),
     provider,
     integrationId: stringValue(parsed.integrationId, 'integration', 256),
     ...(parsed.userBinding === undefined
@@ -297,6 +314,7 @@ function outcomeState(value: string): BizzbloxConnectionOutcomeState {
     256
   );
   const connectorRevision = revisionValue(parsed.connectorRevision);
+  const environment = environmentValue(parsed.environment);
   const userBinding = stringValue(parsed.userBinding, 'user binding', 256);
   const expiresAt = expiryValue(parsed.expiresAt);
   const outcome = parsed.result.outcome;
@@ -304,6 +322,7 @@ function outcomeState(value: string): BizzbloxConnectionOutcomeState {
     return {
       organizationId,
       connectorRevision,
+      environment,
       userBinding,
       expiresAt,
       result: { outcome: 'failed' },
@@ -325,6 +344,7 @@ function outcomeState(value: string): BizzbloxConnectionOutcomeState {
     return {
       organizationId,
       connectorRevision,
+      environment,
       userBinding,
       expiresAt,
       result: { outcome, channelHandle, connectorRevision: resultRevision },
@@ -344,6 +364,7 @@ function outcomeState(value: string): BizzbloxConnectionOutcomeState {
   return {
     organizationId,
     connectorRevision,
+    environment,
     userBinding,
     expiresAt,
     result: {
@@ -418,6 +439,7 @@ export class RedisBizzbloxConnectionStateStore
       stateKey('outcome', [
         state.organizationId,
         String(state.connectorRevision),
+        state.environment,
         state.userBinding,
         outcomeHandle,
       ]),
@@ -429,6 +451,7 @@ export class RedisBizzbloxConnectionStateStore
   async consumeOutcome(
     organizationId: string,
     connectorRevision: number,
+    environment: BizzbloxSocialEnvironment,
     userBinding: string,
     outcomeHandle: string
   ): Promise<BizzbloxConnectionOutcomeState | null> {
@@ -436,6 +459,7 @@ export class RedisBizzbloxConnectionStateStore
       stateKey('outcome', [
         organizationId,
         String(connectorRevision),
+        environment,
         userBinding,
         outcomeHandle,
       ])
@@ -443,11 +467,11 @@ export class RedisBizzbloxConnectionStateStore
     if (!envelope) return null;
     const state = outcomeState(this.codec.unseal(envelope, 'outcome'));
     const left = Buffer.from(
-      `${state.organizationId}\u0000${state.connectorRevision}\u0000${state.userBinding}`,
+      `${state.organizationId}\u0000${state.connectorRevision}\u0000${state.environment}\u0000${state.userBinding}`,
       'utf8'
     );
     const right = Buffer.from(
-      `${organizationId}\u0000${connectorRevision}\u0000${userBinding}`,
+      `${organizationId}\u0000${connectorRevision}\u0000${environment}\u0000${userBinding}`,
       'utf8'
     );
     if (left.byteLength !== right.byteLength || !timingSafeEqual(left, right)) {
@@ -485,6 +509,7 @@ export class RedisBizzbloxConnectionStateStore
       stateKey('selection', [
         state.organizationId,
         String(state.connectorRevision),
+        state.environment,
         attemptHandle,
       ]),
       'selection',
@@ -495,23 +520,25 @@ export class RedisBizzbloxConnectionStateStore
   async consumeSelection(
     organizationId: string,
     connectorRevision: number,
+    environment: BizzbloxSocialEnvironment,
     attemptHandle: string
   ): Promise<BizzbloxSelectionState | null> {
     const envelope = await this.redis.getdel(
       stateKey('selection', [
         organizationId,
         String(connectorRevision),
+        environment,
         attemptHandle,
       ])
     );
     if (!envelope) return null;
     const state = selectionState(this.codec.unseal(envelope, 'selection'));
     const left = Buffer.from(
-      `${state.organizationId}\u0000${state.connectorRevision}`,
+      `${state.organizationId}\u0000${state.connectorRevision}\u0000${state.environment}`,
       'utf8'
     );
     const right = Buffer.from(
-      `${organizationId}\u0000${connectorRevision}`,
+      `${organizationId}\u0000${connectorRevision}\u0000${environment}`,
       'utf8'
     );
     if (left.byteLength !== right.byteLength || !timingSafeEqual(left, right)) {

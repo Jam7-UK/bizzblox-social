@@ -81,6 +81,7 @@ export class BizzbloxConnectionsController {
       this.connections.begin(
         authority.organizationId!,
         authority.connectorRevision,
+        authority.environment,
         body
       )
     );
@@ -96,6 +97,7 @@ export class BizzbloxConnectionsController {
       this.connections.select(
         authority.organizationId!,
         authority.connectorRevision,
+        authority.environment,
         body
       )
     );
@@ -111,6 +113,7 @@ export class BizzbloxConnectionsController {
       this.connections.redeemOutcome(
         authority.organizationId!,
         authority.connectorRevision,
+        authority.environment,
         body
       )
     );
@@ -141,6 +144,7 @@ export class BizzbloxConnectionsController {
       this.connections.reconnect(
         authority.organizationId!,
         authority.connectorRevision,
+        authority.environment,
         body
       )
     );

@@ -7,6 +7,12 @@ import {
 } from './bizzblox-connections.service';
 import type { BizzbloxChannelDirectory } from './bizzblox-contract.service';
 
+const AMP_RETURN_URLS = {
+  dev: 'https://mvp.bizzblox.com/settings/social',
+  preprod: 'https://preprod.jam7.com/settings/social',
+  prod: 'https://amp.jam7.com/settings/social',
+} as const;
+
 describe('BizzBLOX managed social consent', () => {
   it('reconnects a form provider through the same exact channel claim, not generic consent', async () => {
     const providers: BizzbloxConnectionProviderGateway = {
@@ -42,7 +48,7 @@ describe('BizzBLOX managed social consent', () => {
       providers,
       states,
       {
-        ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
+        ampReturnUrls: AMP_RETURN_URLS,
         clock: () => new Date('2026-08-27T22:03:00.000Z'),
         createOpaqueHandle: () =>
           'outcome_opaque_reconnect_abcdefghijklmnopqrstuvwxyz',
@@ -57,7 +63,7 @@ describe('BizzBLOX managed social consent', () => {
     );
 
     await expect(
-      service.reconnect('postiz-org-1', 7, {
+      service.reconnect('postiz-org-1', 7, 'dev', {
         channelHandle: channel.channelHandle,
         userBinding: 'user_binding_exact_abcdefghijklmnopqrstuvwxyz',
         fields: { token: 'replacement-token' },
@@ -115,7 +121,7 @@ describe('BizzBLOX managed social consent', () => {
       providers,
       states,
       {
-        ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
+        ampReturnUrls: AMP_RETURN_URLS,
         clock: () => new Date('2026-08-27T22:03:00.000Z'),
         publicOrigin: 'https://social.bizzblox.com',
       },
@@ -123,7 +129,7 @@ describe('BizzBLOX managed social consent', () => {
     );
 
     await expect(
-      service.reconnect('postiz-org-1', 7, {
+      service.reconnect('postiz-org-1', 7, 'dev', {
         channelHandle: channel.channelHandle,
         userBinding: 'user_binding_exact_abcdefghijklmnopqrstuvwxyz',
       })
@@ -179,7 +185,7 @@ describe('BizzBLOX managed social consent', () => {
       providers,
       states,
       {
-        ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
+        ampReturnUrls: AMP_RETURN_URLS,
         clock: () => new Date('2026-08-27T22:03:00.000Z'),
         publicOrigin: 'https://social.bizzblox.com',
       },
@@ -225,14 +231,14 @@ describe('BizzBLOX managed social consent', () => {
       consumeSelection: vi.fn(),
     };
     const service = new BizzbloxConnectionsService(providers, states, {
-      ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
+      ampReturnUrls: AMP_RETURN_URLS,
       clock: () => new Date('2026-08-27T22:00:00.000Z'),
       createOpaqueHandle: () =>
         'outcome_opaque_abcdefghijklmnopqrstuvwxyz123456',
       publicOrigin: 'https://social.bizzblox.com',
     });
 
-    const result = await service.begin('postiz-org-1', 7, {
+    const result = await service.begin('postiz-org-1', 7, 'dev', {
       provider: 'linkedin',
       userBinding: 'user_binding_exact_abcdefghijklmnopqrstuvwxyz',
     });
@@ -249,6 +255,7 @@ describe('BizzBLOX managed social consent', () => {
     expect(states.saveAuthorization).toHaveBeenCalledWith('provider-state-1', {
       organizationId: 'postiz-org-1',
       connectorRevision: 7,
+      environment: 'dev',
       provider: 'linkedin',
       codeVerifier: 'pkce-verifier-1',
       ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
@@ -265,6 +272,7 @@ describe('BizzBLOX managed social consent', () => {
     const authorizationState = {
       organizationId: 'postiz-org-1',
       connectorRevision: 7,
+      environment: 'dev' as const,
       provider: 'linkedin',
       codeVerifier: 'pkce-verifier-1',
       ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
@@ -297,7 +305,7 @@ describe('BizzBLOX managed social consent', () => {
       providers,
       states,
       {
-        ampReturnUrl: authorizationState.ampReturnUrl,
+        ampReturnUrls: AMP_RETURN_URLS,
         clock: () => new Date('2026-08-27T22:02:00.000Z'),
         publicOrigin: 'https://social.bizzblox.com',
       },
@@ -379,6 +387,7 @@ describe('BizzBLOX managed social consent', () => {
       consumeAuthorization: vi.fn().mockResolvedValue({
         organizationId: 'postiz-org-1',
         connectorRevision: 7,
+        environment: 'dev',
         provider: 'linkedin',
         codeVerifier: 'pkce-verifier-1',
         ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
@@ -398,7 +407,7 @@ describe('BizzBLOX managed social consent', () => {
       providers,
       states,
       {
-        ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
+        ampReturnUrls: AMP_RETURN_URLS,
         clock: () => new Date('2026-08-27T22:02:00.000Z'),
         createOpaqueHandle,
         publicOrigin: 'https://social.bizzblox.com',
@@ -424,6 +433,7 @@ describe('BizzBLOX managed social consent', () => {
     expect(states.saveSelection).toHaveBeenCalledWith('selection-attempt-1', {
       organizationId: 'postiz-org-1',
       connectorRevision: 7,
+      environment: 'dev',
       provider: 'linkedin',
       integrationId: 'integration-linkedin-1',
       userBinding: 'user_binding_exact_abcdefghijklmnopqrstuvwxyz',
@@ -462,6 +472,7 @@ describe('BizzBLOX managed social consent', () => {
         .mockResolvedValueOnce({
           organizationId: 'postiz-org-1',
           connectorRevision: 7,
+          environment: 'dev',
           provider: 'linkedin',
           integrationId: 'integration-linkedin-1',
           userBinding: 'user_binding_exact_abcdefghijklmnopqrstuvwxyz',
@@ -482,7 +493,7 @@ describe('BizzBLOX managed social consent', () => {
       providers,
       states,
       {
-        ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
+        ampReturnUrls: AMP_RETURN_URLS,
         clock: () => new Date('2026-08-27T22:03:00.000Z'),
         publicOrigin: 'https://social.bizzblox.com',
       },
@@ -493,12 +504,12 @@ describe('BizzBLOX managed social consent', () => {
       }
     );
 
-    const connected = await service.select('postiz-org-1', 7, {
+    const connected = await service.select('postiz-org-1', 7, 'dev', {
       attemptHandle: 'selection-attempt-1',
       optionRef: 'selection-option-1',
       userBinding: 'user_binding_exact_abcdefghijklmnopqrstuvwxyz',
     });
-    const replay = await service.select('postiz-org-1', 7, {
+    const replay = await service.select('postiz-org-1', 7, 'dev', {
       attemptHandle: 'selection-attempt-1',
       optionRef: 'selection-option-1',
       userBinding: 'user_binding_exact_abcdefghijklmnopqrstuvwxyz',
@@ -557,7 +568,7 @@ describe('BizzBLOX managed social consent', () => {
       providers,
       states,
       {
-        ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
+        ampReturnUrls: AMP_RETURN_URLS,
         clock: () => new Date('2026-08-27T22:03:00.000Z'),
         publicOrigin: 'https://social.bizzblox.com',
       },
@@ -569,9 +580,9 @@ describe('BizzBLOX managed social consent', () => {
     );
 
     await expect(
-      service.begin('postiz-org-1', 7, { provider: 'bluesky' })
+      service.begin('postiz-org-1', 7, 'dev', { provider: 'bluesky' })
     ).resolves.toEqual({ mode: 'form', fields });
-    const connected = await service.begin('postiz-org-1', 7, {
+    const connected = await service.begin('postiz-org-1', 7, 'dev', {
       provider: 'bluesky',
       fields: {
         identifier: 'bizzblox.bsky.social',
@@ -623,7 +634,7 @@ describe('BizzBLOX managed social consent', () => {
       providers,
       states,
       {
-        ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
+        ampReturnUrls: AMP_RETURN_URLS,
         clock: () => new Date('2026-08-27T22:03:00.000Z'),
         publicOrigin: 'https://social.bizzblox.com',
       },
@@ -635,12 +646,12 @@ describe('BizzBLOX managed social consent', () => {
     );
 
     await expect(
-      service.begin('postiz-org-1', 7, { provider: 'telegram' })
+      service.begin('postiz-org-1', 7, 'dev', { provider: 'telegram' })
     ).resolves.toEqual({
       mode: 'manual',
       instructions: 'Complete the provider connection steps in AMP.',
     });
-    const connected = await service.begin('postiz-org-1', 7, {
+    const connected = await service.begin('postiz-org-1', 7, 'dev', {
       provider: 'telegram',
       manualCode: '-1001234567890',
     });
@@ -658,5 +669,46 @@ describe('BizzBLOX managed social consent', () => {
     });
     expect(JSON.stringify(connected)).not.toContain('-1001234567890');
     expect(JSON.stringify(connected)).not.toContain('integration-telegram-1');
+  });
+
+  it('binds OAuth state to the verified environment return origin', async () => {
+    const providers: BizzbloxConnectionProviderGateway = {
+      listProviders: vi.fn(),
+      beginAuthorization: vi.fn().mockResolvedValue({
+        authorizationUrl: 'https://www.linkedin.com/oauth/v2/authorization',
+        providerState: 'provider-state-preprod',
+        codeVerifier: 'pkce-verifier-preprod',
+      }),
+      completeAuthorization: vi.fn(),
+      completeCustomFields: vi.fn(),
+      selectAccount: vi.fn(),
+      describe: vi.fn().mockResolvedValue({ mode: 'oauth' }),
+    };
+    const states: BizzbloxConnectionStateStore = {
+      saveAuthorization: vi.fn(),
+      consumeAuthorization: vi.fn(),
+      saveSelection: vi.fn(),
+      consumeSelection: vi.fn(),
+    };
+    const service = new BizzbloxConnectionsService(providers, states, {
+      ampReturnUrls: AMP_RETURN_URLS,
+      clock: () => new Date('2026-09-01T07:00:00.000Z'),
+      createOpaqueHandle: () =>
+        'outcome_preprod_opaque_abcdefghijklmnopqrstuvwxyz',
+      publicOrigin: 'https://social.bizzblox.com',
+    });
+
+    await service.begin('postiz-org-preprod', 7, 'preprod', {
+      provider: 'linkedin',
+      userBinding: 'user_binding_exact_abcdefghijklmnopqrstuvwxyz',
+    });
+
+    expect(states.saveAuthorization).toHaveBeenCalledWith(
+      'provider-state-preprod',
+      expect.objectContaining({
+        environment: 'preprod',
+        ampReturnUrl: AMP_RETURN_URLS.preprod,
+      })
+    );
   });
 });

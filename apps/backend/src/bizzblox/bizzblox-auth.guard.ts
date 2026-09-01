@@ -9,6 +9,8 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 
+import type { BizzbloxSocialEnvironment } from './bizzblox-environment';
+
 export const BIZZBLOX_CLAIM_VERIFIER = Symbol('BIZZBLOX_CLAIM_VERIFIER');
 export const BIZZBLOX_REPLAY_STORE = Symbol('BIZZBLOX_REPLAY_STORE');
 export const BIZZBLOX_TENANT_ACCESS = Symbol('BIZZBLOX_TENANT_ACCESS');
@@ -17,6 +19,7 @@ export const BIZZBLOX_AUTH_CONFIG = Symbol('BIZZBLOX_AUTH_CONFIG');
 export type BizzbloxOperationClaim = Readonly<{
   audience: string;
   connectorRevision: number;
+  environment: BizzbloxSocialEnvironment;
   expiresAt: number;
   issuedAt: number;
   nonce: string;
@@ -64,6 +67,7 @@ export type BizzbloxVerifiedRequest = {
   bizzbloxAuth?: Readonly<{
     connectorRevision: number;
     credentialVersion: number | null;
+    environment: BizzbloxSocialEnvironment;
     operation: string;
     organizationId: string | null;
     tenantHandle: string;
@@ -429,6 +433,7 @@ export class BizzbloxAuthGuard implements CanActivate {
       request.bizzbloxAuth = Object.freeze({
         connectorRevision: claim.connectorRevision,
         credentialVersion: tenant?.credentialVersion ?? null,
+        environment: claim.environment,
         operation: claim.operation,
         organizationId: tenant?.organizationId ?? null,
         tenantHandle: binding.tenantHandle,
