@@ -38,6 +38,7 @@ describe('BizzBLOX managed connection state store', () => {
     const state: BizzbloxAuthorizationState = {
       organizationId: 'postiz-org-1',
       connectorRevision: 7,
+      environment: 'dev',
       provider: 'linkedin',
       codeVerifier: 'pkce-verifier-1',
       ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
@@ -85,9 +86,10 @@ describe('BizzBLOX managed connection state store', () => {
     const state: BizzbloxSelectionState = {
       organizationId: 'postiz-org-1',
       connectorRevision: 7,
+      environment: 'preprod',
       provider: 'linkedin',
       integrationId: 'integration-linkedin-1',
-      ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
+      ampReturnUrl: 'https://preprod.jam7.com/settings/social',
       expiresAt: Date.parse('2026-08-27T22:05:00.000Z'),
       options: [
         {
@@ -102,13 +104,31 @@ describe('BizzBLOX managed connection state store', () => {
     await store.saveSelection('selection-attempt-1', state);
 
     await expect(
-      store.consumeSelection('postiz-org-2', 7, 'selection-attempt-1')
+      store.consumeSelection(
+        'postiz-org-2',
+        7,
+        'preprod',
+        'selection-attempt-1'
+      )
     ).resolves.toBeNull();
     await expect(
-      store.consumeSelection('postiz-org-1', 7, 'selection-attempt-1')
+      store.consumeSelection('postiz-org-1', 7, 'dev', 'selection-attempt-1')
+    ).resolves.toBeNull();
+    await expect(
+      store.consumeSelection(
+        'postiz-org-1',
+        7,
+        'preprod',
+        'selection-attempt-1'
+      )
     ).resolves.toEqual(state);
     await expect(
-      store.consumeSelection('postiz-org-1', 7, 'selection-attempt-1')
+      store.consumeSelection(
+        'postiz-org-1',
+        7,
+        'preprod',
+        'selection-attempt-1'
+      )
     ).resolves.toBeNull();
   });
 
@@ -136,6 +156,7 @@ describe('BizzBLOX managed connection state store', () => {
     const state: BizzbloxConnectionOutcomeState = {
       organizationId: 'postiz-org-1',
       connectorRevision: 7,
+      environment: 'dev',
       userBinding: 'user_binding_exact_abcdefghijklmnopqrstuvwxyz',
       expiresAt: Date.parse('2026-08-27T22:05:00.000Z'),
       result: {
@@ -149,19 +170,25 @@ describe('BizzBLOX managed connection state store', () => {
     await store.saveOutcome(handle, state);
 
     await expect(
-      store.consumeOutcome('postiz-org-2', 7, state.userBinding, handle)
+      store.consumeOutcome('postiz-org-2', 7, 'dev', state.userBinding, handle)
     ).resolves.toBeNull();
     await expect(
-      store.consumeOutcome('postiz-org-1', 8, state.userBinding, handle)
+      store.consumeOutcome('postiz-org-1', 8, 'dev', state.userBinding, handle)
     ).resolves.toBeNull();
     await expect(
-      store.consumeOutcome('postiz-org-1', 7, 'wrong-user-binding', handle)
+      store.consumeOutcome(
+        'postiz-org-1',
+        7,
+        'dev',
+        'wrong-user-binding',
+        handle
+      )
     ).resolves.toBeNull();
     await expect(
-      store.consumeOutcome('postiz-org-1', 7, state.userBinding, handle)
+      store.consumeOutcome('postiz-org-1', 7, 'dev', state.userBinding, handle)
     ).resolves.toEqual(state);
     await expect(
-      store.consumeOutcome('postiz-org-1', 7, state.userBinding, handle)
+      store.consumeOutcome('postiz-org-1', 7, 'dev', state.userBinding, handle)
     ).resolves.toBeNull();
   });
 });

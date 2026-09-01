@@ -13,31 +13,35 @@ import {
   BizzbloxConnectionsService,
 } from './bizzblox-connections.service';
 
-function validatedAmpReturnUrl(config: BizzbloxConnectionConfig): URL {
-  const url = new URL(config.ampReturnUrl);
-  if (
-    url.protocol !== 'https:' ||
-    !url.hostname.endsWith('.bizzblox.com') ||
-    !url.pathname.startsWith('/settings') ||
-    url.username ||
-    url.password ||
-    url.search ||
-    url.hash
-  ) {
-    throw new Error('Invalid BizzBLOX OAuth return configuration.');
-  }
-  return url;
+function validatedAmpReturnUrls(config: BizzbloxConnectionConfig): Set<string> {
+  const urls = Object.values(config.ampReturnUrls).map((value) => {
+    const url = new URL(value);
+    if (
+      url.protocol !== 'https:' ||
+      (!url.hostname.endsWith('.bizzblox.com') &&
+        !url.hostname.endsWith('.jam7.com')) ||
+      url.pathname !== '/settings/social' ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash
+    ) {
+      throw new Error('Invalid BizzBLOX OAuth return configuration.');
+    }
+    return `${url.origin}${url.pathname}`;
+  });
+  return new Set(urls);
 }
 
 @Controller('/oauth/bizzblox')
 export class BizzbloxOAuthController {
-  private readonly ampReturnUrl: URL;
+  private readonly ampReturnUrls: Set<string>;
 
   constructor(
     private readonly connections: BizzbloxConnectionsService,
     @Inject(BIZZBLOX_CONNECTION_CONFIG) config: BizzbloxConnectionConfig
   ) {
-    this.ampReturnUrl = validatedAmpReturnUrl(config);
+    this.ampReturnUrls = validatedAmpReturnUrls(config);
   }
 
   @Get('/callback/:provider')
@@ -54,8 +58,7 @@ export class BizzbloxOAuthController {
     });
     const redirect = new URL(result.redirectUrl);
     if (
-      redirect.origin !== this.ampReturnUrl.origin ||
-      redirect.pathname !== this.ampReturnUrl.pathname ||
+      !this.ampReturnUrls.has(`${redirect.origin}${redirect.pathname}`) ||
       redirect.username ||
       redirect.password ||
       redirect.hash

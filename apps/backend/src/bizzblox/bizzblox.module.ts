@@ -15,6 +15,10 @@ import {
 } from './bizzblox-auth.guard';
 import { BizzbloxJwtClaimVerifier } from './bizzblox-claim';
 import {
+  BIZZBLOX_SOCIAL_ENVIRONMENTS,
+  type BizzbloxSocialEnvironment,
+} from './bizzblox-environment';
+import {
   BIZZBLOX_CHANNEL_DATABASE,
   PrismaBizzbloxChannelDirectory,
 } from './bizzblox-channel.directory';
@@ -90,12 +94,36 @@ function requiredEnvironment(name: string): string {
   return value;
 }
 
-function authConfig(): BizzbloxAuthConfig & {
-  issuer: string;
-  publicKey: string;
-  smokePublicKey: string;
-  smokeTenantPattern: RegExp;
-} {
+type BizzbloxRuntimeAuthConfig = BizzbloxAuthConfig &
+  Readonly<{
+    environments: Readonly<
+      Record<
+        BizzbloxSocialEnvironment,
+        Readonly<{ issuer: string; publicKey: string }>
+      >
+    >;
+    synthetic: Readonly<{
+      issuer: string;
+      publicKey: string;
+      tenantPattern: RegExp;
+    }>;
+  }>;
+
+function operationClaimEnvironment(
+  environment: BizzbloxSocialEnvironment
+): Readonly<{ issuer: string; publicKey: string }> {
+  const prefix = environment.toUpperCase();
+  return Object.freeze({
+    issuer: requiredEnvironment(`BIZZBLOX_${prefix}_OPERATION_CLAIM_ISSUER`),
+    publicKey: requiredEnvironment(
+      `BIZZBLOX_${prefix}_OPERATION_CLAIM_PUBLIC_KEY_PEM`
+    )
+      .split('\\n')
+      .join('\n'),
+  });
+}
+
+function authConfig(): BizzbloxRuntimeAuthConfig {
   if (process.env.BIZZBLOX_SERVICE_MODE !== '1') {
     throw new Error(
       'BizzBLOX service module is unavailable outside service mode'
@@ -111,11 +139,6 @@ function authConfig(): BizzbloxAuthConfig & {
   ) {
     throw new Error('Invalid BizzBLOX bridge identity configuration');
   }
-  const publicKey = requiredEnvironment(
-    'BIZZBLOX_OPERATION_CLAIM_PUBLIC_KEY_PEM'
-  )
-    .split('\\n')
-    .join('\n');
   const smokePublicKey = requiredEnvironment(
     'BIZZBLOX_SMOKE_OPERATION_CLAIM_PUBLIC_KEY_PEM'
   )
@@ -132,10 +155,22 @@ function authConfig(): BizzbloxAuthConfig & {
     audience: 'bizzblox-social',
     bridgePrincipalArn,
     clock: () => new Date(),
-    issuer: requiredEnvironment('BIZZBLOX_OPERATION_CLAIM_ISSUER'),
-    publicKey,
-    smokePublicKey,
-    smokeTenantPattern: new RegExp(smokeTenantPattern),
+    environments: Object.freeze(
+      Object.fromEntries(
+        BIZZBLOX_SOCIAL_ENVIRONMENTS.map((environment) => [
+          environment,
+          operationClaimEnvironment(environment),
+        ])
+      ) as Record<
+        BizzbloxSocialEnvironment,
+        Readonly<{ issuer: string; publicKey: string }>
+      >
+    ),
+    synthetic: Object.freeze({
+      issuer: requiredEnvironment('BIZZBLOX_SMOKE_OPERATION_CLAIM_ISSUER'),
+      publicKey: smokePublicKey,
+      tenantPattern: new RegExp(smokeTenantPattern),
+    }),
   });
 }
 
@@ -172,7 +207,11 @@ function opaqueRefs(): BizzbloxHmacOpaqueRefs {
 
 function connectionConfig(): BizzbloxConnectionConfig {
   return Object.freeze({
-    ampReturnUrl: requiredEnvironment('BIZZBLOX_AMP_RETURN_URL'),
+    ampReturnUrls: Object.freeze({
+      dev: requiredEnvironment('BIZZBLOX_DEV_AMP_RETURN_URL'),
+      preprod: requiredEnvironment('BIZZBLOX_PREPROD_AMP_RETURN_URL'),
+      prod: requiredEnvironment('BIZZBLOX_PROD_AMP_RETURN_URL'),
+    }),
     clock: () => new Date(),
     createOpaqueHandle: randomUUID,
     publicOrigin: 'https://social.bizzblox.com',
@@ -281,10 +320,8 @@ function connectionStateCodec(): BizzbloxConnectionStateCodec {
       provide: BIZZBLOX_AUTH_CONFIG,
       useFactory: () => {
         const {
-          issuer: _issuer,
-          publicKey: _publicKey,
-          smokePublicKey: _smokePublicKey,
-          smokeTenantPattern: _smokeTenantPattern,
+          environments: _environments,
+          synthetic: _synthetic,
           ...config
         } = authConfig();
         return config;
@@ -297,12 +334,8 @@ function connectionStateCodec(): BizzbloxConnectionStateCodec {
         return new BizzbloxJwtClaimVerifier({
           audience: config.audience,
           clock: config.clock,
-          issuer: config.issuer,
-          publicKey: config.publicKey,
-          synthetic: {
-            publicKey: config.smokePublicKey,
-            tenantPattern: config.smokeTenantPattern,
-          },
+          environments: config.environments,
+          synthetic: config.synthetic,
         });
       },
     },

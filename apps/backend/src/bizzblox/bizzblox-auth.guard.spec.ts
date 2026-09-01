@@ -252,6 +252,7 @@ describe('BizzBLOX service authentication guard', () => {
     const verify = vi.fn<BizzbloxClaimVerifier['verify']>().mockResolvedValue({
       audience: 'bizzblox-social',
       connectorRevision: 7,
+      environment: 'dev',
       expiresAt: 1787860890,
       issuedAt: 1787860800,
       nonce: 'nonce_media_01J6DCG5GFV2X9PPYF4D8KPWYB',
@@ -302,32 +303,39 @@ describe('BizzBLOX service authentication guard', () => {
     expect(request.bizzbloxAuth?.operation).toBe('media.upload');
   });
   it('bootstraps a tenant only when IAM and the one-use signed claim agree', async () => {
+    const tenantHandle = `tenant_${'A'.repeat(43)}-dev`;
+    const body = {
+      externalTenantHandle: tenantHandle,
+      idempotencyVersion: 2,
+    };
     const verify = vi.fn<BizzbloxClaimVerifier['verify']>().mockResolvedValue({
       audience: 'bizzblox-social',
       connectorRevision: 7,
+      environment: 'dev',
       expiresAt: 1787860890,
       issuedAt: 1787860800,
       nonce: 'nonce_01J6DCG5GFV2X9PPYF4D8KPWYB',
       operation: 'tenant.ensure',
-      requestDigest,
-      tenantHandleHash,
+      requestDigest: digestRequest(
+        body,
+        'POST',
+        '/internal/bizzblox/v1/tenants:ensure'
+      ),
+      tenantHandleHash: createHash('sha256').update(tenantHandle).digest('hex'),
     });
     const consume = vi
       .fn<BizzbloxReplayStore['consume']>()
       .mockResolvedValue(true);
     const verifyCredential = vi.fn<BizzbloxTenantAccess['verifyCredential']>();
     const request: BizzbloxVerifiedRequest = {
-      body: {
-        externalTenantHandle: 'tenant_opaque_123',
-        idempotencyVersion: 1,
-      },
+      body,
       bizzbloxIam: {
         accountId: '495599735993',
         principalArn: 'arn:aws:iam::495599735993:role/BizzbloxSocialBridge',
       },
       headers: {
         'x-bizzblox-operation-claim': 'signed-claim',
-        'x-bizzblox-tenant-handle': 'tenant_opaque_123',
+        'x-bizzblox-tenant-handle': tenantHandle,
       },
       method: 'POST',
       originalUrl: '/internal/bizzblox/v1/tenants:ensure',
@@ -348,7 +356,7 @@ describe('BizzBLOX service authentication guard', () => {
     await expect(guard.canActivate(executionContext(request))).resolves.toBe(
       true
     );
-    expect(verify).toHaveBeenCalledWith('signed-claim', 'tenant_opaque_123');
+    expect(verify).toHaveBeenCalledWith('signed-claim', tenantHandle);
     expect(verifyCredential).not.toHaveBeenCalled();
     expect(consume).toHaveBeenCalledWith(
       'nonce_01J6DCG5GFV2X9PPYF4D8KPWYB',
@@ -357,9 +365,10 @@ describe('BizzBLOX service authentication guard', () => {
     expect(request.bizzbloxAuth).toEqual({
       connectorRevision: 7,
       credentialVersion: null,
+      environment: 'dev',
       operation: 'tenant.ensure',
       organizationId: null,
-      tenantHandle: 'tenant_opaque_123',
+      tenantHandle,
     });
   });
 
@@ -445,6 +454,7 @@ describe('BizzBLOX service authentication guard', () => {
         .mockResolvedValue({
           audience: 'bizzblox-social',
           connectorRevision: 7,
+          environment: 'dev',
           expiresAt: 1787860890,
           issuedAt: 1787860800,
           nonce: 'nonce_01J6DCG5GFV2X9PPYF4D8KPWYB',
@@ -506,6 +516,7 @@ describe('BizzBLOX service authentication guard', () => {
     const verify = vi.fn<BizzbloxClaimVerifier['verify']>().mockResolvedValue({
       audience: 'bizzblox-social',
       connectorRevision: 7,
+      environment: 'dev',
       expiresAt: 1787860890,
       issuedAt: 1787860800,
       nonce: 'nonce_01J6DCG5GFV2X9PPYF4D8KPWYB',
@@ -564,6 +575,7 @@ describe('BizzBLOX service authentication guard', () => {
     const verify = vi.fn<BizzbloxClaimVerifier['verify']>().mockResolvedValue({
       audience: 'bizzblox-social',
       connectorRevision: 7,
+      environment: 'dev',
       expiresAt: 1787860890,
       issuedAt: 1787860800,
       nonce: 'nonce_01J6DCG5GFV2X9PPYF4D8KPWYB',

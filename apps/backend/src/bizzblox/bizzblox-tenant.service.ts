@@ -2,6 +2,11 @@ import { createHash } from 'node:crypto';
 
 import { Inject, Injectable } from '@nestjs/common';
 
+import {
+  socialEnvironmentFromIdempotencyKey,
+  socialEnvironmentFromTenantHandle,
+} from './bizzblox-environment';
+
 export const BIZZBLOX_TENANT_STORE = Symbol('BIZZBLOX_TENANT_STORE');
 export const BIZZBLOX_TENANT_CREDENTIALS = Symbol(
   'BIZZBLOX_TENANT_CREDENTIALS'
@@ -14,7 +19,7 @@ export type EnsureTenantInput = Readonly<{
   connectorRevision: number;
   externalTenantHandle: string;
   idempotencyKey: string;
-  idempotencyVersion: 1;
+  idempotencyVersion: 1 | 2;
 }>;
 
 export type EnsureTenantResponse = Readonly<{
@@ -110,12 +115,30 @@ function payloadDigest(input: EnsureTenantInput): string {
 }
 
 function validInput(input: EnsureTenantInput): boolean {
+  if (
+    !Number.isInteger(input.connectorRevision) ||
+    input.connectorRevision <= 0
+  ) {
+    return false;
+  }
+
+  const environment = socialEnvironmentFromTenantHandle(
+    input.externalTenantHandle
+  );
+  if (environment !== null) {
+    return (
+      input.idempotencyVersion === 2 &&
+      socialEnvironmentFromIdempotencyKey(input.idempotencyKey) === environment
+    );
+  }
+
+  // Synthetic release probes are a separate, protected control-plane path.
   return (
-    /^tenant_[A-Za-z0-9_-]{8,120}$/.test(input.externalTenantHandle) &&
+    /^tenant_synthetic_[A-Za-z0-9_-]{1,103}$/.test(
+      input.externalTenantHandle
+    ) &&
     /^idem_[A-Za-z0-9_-]{16,120}$/.test(input.idempotencyKey) &&
-    input.idempotencyVersion === 1 &&
-    Number.isInteger(input.connectorRevision) &&
-    input.connectorRevision > 0
+    input.idempotencyVersion === 1
   );
 }
 
@@ -230,7 +253,10 @@ export class BizzbloxTenantService {
         tenantHandle: string;
       }>
   > {
-    if (!/^tenant_[A-Za-z0-9_-]{8,120}$/.test(externalTenantHandle)) {
+    if (
+      socialEnvironmentFromTenantHandle(externalTenantHandle) === null &&
+      !/^tenant_synthetic_[A-Za-z0-9_-]{1,103}$/.test(externalTenantHandle)
+    ) {
       return Object.freeze({ found: false });
     }
     const record = await this.store.read(externalTenantHandle);
