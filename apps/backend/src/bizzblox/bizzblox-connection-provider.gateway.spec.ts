@@ -1,8 +1,53 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { XProvider } from '@gitroom/nestjs-libraries/integrations/social/x.provider';
+
 import { PostizBizzbloxConnectionProviderGateway } from './bizzblox-connection-provider.gateway';
 
 describe('Postiz BizzBLOX connection provider gateway', () => {
+  it('maps each provider redirect query to the state and code its authenticate expects', () => {
+    const providers: Record<string, unknown> = {
+      x: new XProvider(),
+      linkedin: { identifier: 'linkedin' },
+    };
+    const manager = {
+      getAllowedSocialsIntegrations: vi.fn().mockReturnValue(['x', 'linkedin']),
+      isHiddenProvider: vi.fn().mockReturnValue(false),
+      getSocialIntegration: vi.fn(
+        (identifier: string) => providers[identifier]
+      ),
+    };
+    const gateway = new PostizBizzbloxConnectionProviderGateway(
+      manager as never,
+      {} as never,
+      {} as never
+    );
+
+    // X is OAuth 1.0a: the request token names the state, the verifier is the code.
+    expect(
+      gateway.readCallback('x', {
+        oauth_token: 'request-token-1',
+        oauth_verifier: 'verifier-1',
+      })
+    ).toEqual({ providerState: 'request-token-1', code: 'verifier-1' });
+    expect(gateway.readCallback('x', { denied: 'request-token-1' })).toEqual({
+      providerState: 'request-token-1',
+      code: '',
+    });
+    expect(
+      gateway.readCallback('linkedin', { state: 'state-1', code: 'code-1' })
+    ).toEqual({ providerState: 'state-1', code: 'code-1' });
+    expect(
+      gateway.readCallback('linkedin', {
+        state: 'state-1',
+        error: 'unauthorized_scope_error',
+      })
+    ).toEqual({ providerState: 'state-1', code: '' });
+    expect(() => gateway.readCallback('bluesky', { state: 's' })).toThrow(
+      'Social provider is unavailable.'
+    );
+  });
+
   it('removes only the exact organization integration and proves it is gone', async () => {
     let integration = {
       id: 'integration-linkedin-1',

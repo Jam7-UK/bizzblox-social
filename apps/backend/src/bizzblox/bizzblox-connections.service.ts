@@ -64,6 +64,14 @@ export interface BizzbloxConnectionProviderGateway {
       codeVerifier: string;
     }>
   >;
+  /**
+   * Maps the provider's redirect query to the state / code pair
+   * `completeAuthorization` consumes. Absent means the OAuth 2.0 names.
+   */
+  readCallback?(
+    provider: string,
+    query: Readonly<Record<string, string>>
+  ): Readonly<{ providerState: string; code: string }>;
   completeAuthorization(
     input: Readonly<{
       organizationId: string;
@@ -595,11 +603,18 @@ export class BizzbloxConnectionsService {
     });
   }
 
+  /**
+   * Finishes provider consent from the raw redirect query. The provider gateway
+   * decides which query names carry the state and code (X is OAuth 1.0a and
+   * returns `oauth_token` / `oauth_verifier`). A redirect that names the state
+   * but no code (denied scopes, cancelled sign-in) records a failed outcome on
+   * the caller's handle so AMP can say the account could not be connected; only
+   * an unrecognised state falls to the generic failure redirect.
+   */
   async completeCallback(
     input: Readonly<{
       provider: string;
-      providerState: string;
-      code: string;
+      query: Readonly<Record<string, string>>;
     }>
   ) {
     let state: BizzbloxAuthorizationState | null = null;
@@ -611,8 +626,13 @@ export class BizzbloxConnectionsService {
     });
     try {
       const provider = providerIdentifier(input.provider);
-      const providerState = boundedCallbackValue(input.providerState);
-      const code = boundedCallbackValue(input.code);
+      const callback = this.providers.readCallback
+        ? this.providers.readCallback(provider, input.query)
+        : {
+            providerState: input.query.state ?? '',
+            code: input.query.code ?? '',
+          };
+      const providerState = boundedCallbackValue(callback.providerState);
       state = await this.states.consumeAuthorization(providerState);
       if (
         !state ||
@@ -627,6 +647,7 @@ export class BizzbloxConnectionsService {
       const userBinding = opaqueUserBinding(state.userBinding);
       const outcomeHandle = opaqueOutcomeHandle(state.outcomeHandle);
       if (!this.states.saveOutcome || !this.refs) return failed;
+      const code = boundedCallbackValue(callback.code);
 
       const callbackUrl = new URL(
         `/oauth/bizzblox/callback/${provider}`,

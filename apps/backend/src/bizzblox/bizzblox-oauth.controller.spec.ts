@@ -23,16 +23,14 @@ describe('BizzBLOX branded OAuth callback', () => {
       publicOrigin: 'https://social.bizzblox.com',
     });
 
-    const result = await controller.callback(
-      'linkedin',
-      'provider-state-1',
-      'authorization-code-1'
-    );
+    const result = await controller.callback('linkedin', {
+      state: 'provider-state-1',
+      code: 'authorization-code-1',
+    });
 
     expect(connections.completeCallback).toHaveBeenCalledWith({
       provider: 'linkedin',
-      providerState: 'provider-state-1',
-      code: 'authorization-code-1',
+      query: { state: 'provider-state-1', code: 'authorization-code-1' },
     });
     expect(result.statusCode).toBe(303);
     const redirect = new URL(result.url);
@@ -62,11 +60,35 @@ describe('BizzBLOX branded OAuth callback', () => {
       publicOrigin: 'https://social.bizzblox.com',
     });
 
-    await expect(
-      controller.callback('linkedin', undefined, undefined)
-    ).resolves.toEqual({
+    await expect(controller.callback('linkedin', {})).resolves.toEqual({
       statusCode: 303,
       url: 'https://mvp.bizzblox.com/settings/social?social=failed',
+    });
+  });
+
+  it('hands the whole string query to the provider mapping, so OAuth 1.0a names survive', async () => {
+    const connections = {
+      completeCallback: vi.fn().mockResolvedValue({
+        outcome: 'ready',
+        redirectUrl:
+          'https://mvp.bizzblox.com/settings/social?outcome=outcome_opaque_abcdefghijklmnopqrstuvwxyz123456',
+      }),
+    };
+    const controller = new BizzbloxOAuthController(connections as never, {
+      ampReturnUrls: AMP_RETURN_URLS,
+      clock: () => new Date('2026-09-03T11:00:00.000Z'),
+      publicOrigin: 'https://social.bizzblox.com',
+    });
+
+    await controller.callback('x', {
+      oauth_token: 'request-token-1',
+      oauth_verifier: 'verifier-1',
+      repeated: ['a', 'b'],
+    });
+
+    expect(connections.completeCallback).toHaveBeenCalledWith({
+      provider: 'x',
+      query: { oauth_token: 'request-token-1', oauth_verifier: 'verifier-1' },
     });
   });
 
@@ -85,7 +107,10 @@ describe('BizzBLOX branded OAuth callback', () => {
     });
 
     await expect(
-      controller.callback('linkedin', 'provider-state', 'provider-code')
+      controller.callback('linkedin', {
+        state: 'provider-state',
+        code: 'provider-code',
+      })
     ).resolves.toEqual({
       statusCode: 303,
       url: 'https://preprod.jam7.com/settings/social?outcome=opaque-preprod',
