@@ -238,6 +238,26 @@ export class PostizBizzbloxConnectionProviderGateway
     };
   }
 
+  /**
+   * Reads the provider's redirect query into the state / code pair. OAuth 2.0
+   * providers use `state` and `code`; a provider whose redirect differs
+   * (OAuth 1.0a X, TikTok Business, VK, MeWe) declares its own mapping.
+   */
+  readCallback(
+    identifier: string,
+    query: Readonly<Record<string, string>>
+  ): Readonly<{ providerState: string; code: string }> {
+    const provider = this.provider(identifier);
+    const mapped = provider.callbackParameters?.(query) ?? {
+      state: query.state ?? '',
+      code: query.code ?? '',
+    };
+    return Object.freeze({
+      providerState: boundedText(mapped.state, 2_048) ?? '',
+      code: boundedText(mapped.code, 2_048) ?? '',
+    });
+  }
+
   async resolveReconnectProvider(input: {
     organizationId: string;
     connectorRevision: number;

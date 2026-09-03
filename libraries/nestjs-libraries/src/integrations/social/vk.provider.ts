@@ -111,6 +111,14 @@ export class VkProvider extends SocialAbstract implements SocialProvider {
     };
   }
 
+  /** VK needs the redirect's `device_id` alongside `code`; `authenticate` splits the pair back out. */
+  callbackParameters(query: Readonly<Record<string, string>>) {
+    return {
+      state: query.state ?? '',
+      code: query.code ? `${query.code}&&&&${query.device_id ?? ''}` : '',
+    };
+  }
+
   async authenticate(params: {
     code: string;
     codeVerifier: string;

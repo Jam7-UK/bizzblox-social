@@ -407,6 +407,17 @@ export class XProvider extends SocialAbstract implements SocialProvider {
     };
   }
 
+  /**
+   * OAuth 1.0a returns `oauth_token` + `oauth_verifier`; a sign-in the user
+   * cancels returns `denied=<oauth_token>` instead, which still names the state.
+   */
+  callbackParameters(query: Readonly<Record<string, string>>) {
+    return {
+      state: query.oauth_token ?? query.denied ?? '',
+      code: query.oauth_verifier ?? '',
+    };
+  }
+
   async authenticate(params: { code: string; codeVerifier: string }) {
     const { code, codeVerifier } = params;
     const [oauth_token, oauth_token_secret] = codeVerifier.split(':');

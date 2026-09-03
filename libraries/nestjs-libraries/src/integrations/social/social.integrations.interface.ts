@@ -225,4 +225,14 @@ export interface SocialProvider
     accessToken: string,
     data: any
   ): Promise<FetchPageInformationResult>;
+  /**
+   * Reads the provider's redirect query into the `state` / `code` pair that
+   * `authenticate` expects. Only providers whose redirect does not use the
+   * OAuth 2.0 `state` and `code` names implement it (OAuth 1.0a X returns
+   * `oauth_token` / `oauth_verifier`, TikTok Business returns `auth_code`).
+   */
+  callbackParameters?(query: Readonly<Record<string, string>>): {
+    state: string;
+    code: string;
+  };
 }

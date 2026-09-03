@@ -98,6 +98,14 @@ export class MeweProvider extends SocialAbstract implements SocialProvider {
     };
   }
 
+  /** MeWe redirects back with `loginRequestToken` instead of `code`. */
+  callbackParameters(query: Readonly<Record<string, string>>) {
+    return {
+      state: query.state ?? '',
+      code: query.loginRequestToken ?? '',
+    };
+  }
+
   async authenticate(params: {
     code: string;
     codeVerifier: string;

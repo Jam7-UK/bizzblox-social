@@ -318,13 +318,11 @@ describe('BizzBLOX managed social consent', () => {
 
     const connected = await service.completeCallback({
       provider: 'linkedin',
-      providerState: 'provider-state-1',
-      code: 'authorization-code-1',
+      query: { state: 'provider-state-1', code: 'authorization-code-1' },
     });
     const replay = await service.completeCallback({
       provider: 'linkedin',
-      providerState: 'provider-state-1',
-      code: 'authorization-code-1',
+      query: { state: 'provider-state-1', code: 'authorization-code-1' },
     });
 
     expect(connected).toEqual({
@@ -361,6 +359,152 @@ describe('BizzBLOX managed social consent', () => {
     });
     expect(JSON.stringify(connected)).not.toContain('postiz-org-1');
     expect(JSON.stringify(connected)).not.toContain('integration-linkedin-1');
+  });
+
+  it('reads OAuth 1.0a callbacks through the provider mapping and records a failed outcome for a state-only return', async () => {
+    const authorizationState = {
+      organizationId: 'postiz-org-1',
+      connectorRevision: 7,
+      environment: 'dev' as const,
+      provider: 'x',
+      codeVerifier: 'request-token-1:request-secret-1',
+      ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
+      expiresAt: Date.parse('2026-09-03T11:10:00.000Z'),
+      userBinding: 'user_binding_exact_abcdefghijklmnopqrstuvwxyz',
+      outcomeHandle: 'outcome_opaque_abcdefghijklmnopqrstuvwxyz123456',
+    };
+    const providers: BizzbloxConnectionProviderGateway = {
+      listProviders: vi.fn(),
+      beginAuthorization: vi.fn(),
+      readCallback: vi.fn((_provider, query: Record<string, string>) => ({
+        providerState: query.oauth_token ?? query.denied ?? '',
+        code: query.oauth_verifier ?? '',
+      })),
+      completeAuthorization: vi.fn().mockResolvedValue({
+        integrationId: 'integration-x-1',
+        selections: [],
+      }),
+      completeCustomFields: vi.fn(),
+      selectAccount: vi.fn(),
+      describe: vi.fn(),
+    };
+    const states: BizzbloxConnectionStateStore = {
+      saveAuthorization: vi.fn(),
+      consumeAuthorization: vi.fn().mockResolvedValue(authorizationState),
+      saveSelection: vi.fn(),
+      consumeSelection: vi.fn(),
+      saveOutcome: vi.fn(),
+    };
+    const service = new BizzbloxConnectionsService(
+      providers,
+      states,
+      {
+        ampReturnUrls: AMP_RETURN_URLS,
+        clock: () => new Date('2026-09-03T11:00:00.000Z'),
+        publicOrigin: 'https://social.bizzblox.com',
+      },
+      undefined,
+      { channel: vi.fn().mockReturnValue('bbx_ch_exact_x'), helper: vi.fn() }
+    );
+
+    const connected = await service.completeCallback({
+      provider: 'x',
+      query: { oauth_token: 'request-token-1', oauth_verifier: 'verifier-1' },
+    });
+
+    expect(connected).toEqual({
+      outcome: 'ready',
+      redirectUrl:
+        'https://mvp.bizzblox.com/settings/social?outcome=outcome_opaque_abcdefghijklmnopqrstuvwxyz123456',
+    });
+    expect(states.consumeAuthorization).toHaveBeenCalledWith('request-token-1');
+    expect(providers.completeAuthorization).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'x',
+        code: 'verifier-1',
+        codeVerifier: 'request-token-1:request-secret-1',
+      })
+    );
+
+    // The user cancelled on X: the state comes back as `denied`, no verifier.
+    const denied = await service.completeCallback({
+      provider: 'x',
+      query: { denied: 'request-token-1' },
+    });
+
+    expect(denied).toEqual({
+      outcome: 'ready',
+      redirectUrl:
+        'https://mvp.bizzblox.com/settings/social?outcome=outcome_opaque_abcdefghijklmnopqrstuvwxyz123456',
+    });
+    expect(providers.completeAuthorization).toHaveBeenCalledOnce();
+    expect(states.saveOutcome).toHaveBeenLastCalledWith(
+      'outcome_opaque_abcdefghijklmnopqrstuvwxyz123456',
+      expect.objectContaining({
+        userBinding: 'user_binding_exact_abcdefghijklmnopqrstuvwxyz',
+        result: { outcome: 'failed' },
+      })
+    );
+  });
+
+  it('records a failed outcome when an OAuth 2.0 provider returns an error with its state', async () => {
+    const providers: BizzbloxConnectionProviderGateway = {
+      listProviders: vi.fn(),
+      beginAuthorization: vi.fn(),
+      completeAuthorization: vi.fn(),
+      completeCustomFields: vi.fn(),
+      selectAccount: vi.fn(),
+      describe: vi.fn(),
+    };
+    const states: BizzbloxConnectionStateStore = {
+      saveAuthorization: vi.fn(),
+      consumeAuthorization: vi.fn().mockResolvedValue({
+        organizationId: 'postiz-org-1',
+        connectorRevision: 7,
+        environment: 'dev' as const,
+        provider: 'linkedin',
+        codeVerifier: 'pkce-verifier-1',
+        ampReturnUrl: 'https://mvp.bizzblox.com/settings/social',
+        expiresAt: Date.parse('2026-09-03T11:10:00.000Z'),
+        userBinding: 'user_binding_exact_abcdefghijklmnopqrstuvwxyz',
+        outcomeHandle: 'outcome_opaque_abcdefghijklmnopqrstuvwxyz123456',
+      }),
+      saveSelection: vi.fn(),
+      consumeSelection: vi.fn(),
+      saveOutcome: vi.fn(),
+    };
+    const service = new BizzbloxConnectionsService(
+      providers,
+      states,
+      {
+        ampReturnUrls: AMP_RETURN_URLS,
+        clock: () => new Date('2026-09-03T11:00:00.000Z'),
+        publicOrigin: 'https://social.bizzblox.com',
+      },
+      undefined,
+      { channel: vi.fn(), helper: vi.fn() }
+    );
+
+    const result = await service.completeCallback({
+      provider: 'linkedin',
+      query: {
+        state: 'provider-state-1',
+        error: 'unauthorized_scope_error',
+        error_description: 'Scope not authorized',
+      },
+    });
+
+    expect(result).toEqual({
+      outcome: 'ready',
+      redirectUrl:
+        'https://mvp.bizzblox.com/settings/social?outcome=outcome_opaque_abcdefghijklmnopqrstuvwxyz123456',
+    });
+    expect(providers.completeAuthorization).not.toHaveBeenCalled();
+    expect(states.saveOutcome).toHaveBeenCalledWith(
+      'outcome_opaque_abcdefghijklmnopqrstuvwxyz123456',
+      expect.objectContaining({ result: { outcome: 'failed' } })
+    );
+    expect(JSON.stringify(result)).not.toContain('Scope not authorized');
   });
 
   it('turns provider page choices into short-lived opaque AMP selections', async () => {
@@ -421,8 +565,7 @@ describe('BizzBLOX managed social consent', () => {
 
     const result = await service.completeCallback({
       provider: 'linkedin',
-      providerState: 'provider-state-1',
-      code: 'authorization-code-1',
+      query: { state: 'provider-state-1', code: 'authorization-code-1' },
     });
 
     expect(result).toEqual({

@@ -33,6 +33,19 @@ function validatedAmpReturnUrls(config: BizzbloxConnectionConfig): Set<string> {
   return new Set(urls);
 }
 
+/** Keeps only single string values; the provider decides which names matter. */
+function callbackQuery(
+  query: Readonly<Record<string, unknown>>
+): Readonly<Record<string, string>> {
+  return Object.freeze(
+    Object.fromEntries(
+      Object.entries(query).filter(
+        (entry): entry is [string, string] => typeof entry[1] === 'string'
+      )
+    )
+  );
+}
+
 @Controller('/oauth/bizzblox')
 export class BizzbloxOAuthController {
   private readonly ampReturnUrls: Set<string>;
@@ -48,13 +61,11 @@ export class BizzbloxOAuthController {
   @Redirect()
   async callback(
     @Param('provider') provider: string,
-    @Query('state') providerState?: string,
-    @Query('code') code?: string
+    @Query() query: Readonly<Record<string, unknown>> = {}
   ): Promise<Readonly<{ statusCode: 303; url: string }>> {
     const result = await this.connections.completeCallback({
       provider,
-      providerState: providerState ?? '',
-      code: code ?? '',
+      query: callbackQuery(query),
     });
     const redirect = new URL(result.redirectUrl);
     if (

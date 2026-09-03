@@ -363,6 +363,14 @@ export class TiktokBusinessProvider
     };
   }
 
+  /** The TikTok Business API redirects back with `auth_code` instead of `code`. */
+  callbackParameters(query: Readonly<Record<string, string>>) {
+    return {
+      state: query.state ?? '',
+      code: query.auth_code ?? query.code ?? '',
+    };
+  }
+
   async authenticate(params: {
     code: string;
     codeVerifier: string;
