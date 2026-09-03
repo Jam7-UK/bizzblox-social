@@ -33,7 +33,7 @@ export class BizzbloxPublicationsController {
     return authority;
   }
 
-  @Post('/media:upload')
+  @Post('/media\\:upload')
   async uploadMedia(@Req() request: BizzbloxVerifiedRequest) {
     const authority = this.authority(request, 'media.upload');
     const bytes = Buffer.isBuffer(request.body)
@@ -58,7 +58,7 @@ export class BizzbloxPublicationsController {
     });
   }
 
-  @Post('/publications:validate')
+  @Post('/publications\\:validate')
   async validate(
     @Req() request: BizzbloxVerifiedRequest,
     @Body() body: BizzbloxPublicationDto
