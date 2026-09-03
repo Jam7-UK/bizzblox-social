@@ -31,6 +31,13 @@ import {
   BizzbloxSelectConnectionDto,
 } from './dto/connection.dto';
 
+/**
+ * Custom-method routes (`connections:begin`, `connections:outcome`, ...) escape
+ * the colon: under Express 5 / path-to-regexp v8 an unescaped `:name` is a path
+ * parameter, so `/connections:begin` would also match `/connections:outcome`
+ * and every sibling would run the first-registered handler.
+ * `bizzblox-route-paths.spec.ts` dispatches through a real Nest app to prove it.
+ */
 @Controller('/internal/bizzblox/v1')
 @UseGuards(BizzbloxAuthGuard)
 export class BizzbloxConnectionsController {
@@ -71,7 +78,7 @@ export class BizzbloxConnectionsController {
     return await this.safe(async () => this.connections.listProviders());
   }
 
-  @Post('/connections:begin')
+  @Post('/connections\\:begin')
   async begin(
     @Req() request: BizzbloxVerifiedRequest,
     @Body() body: BizzbloxBeginConnectionDto
@@ -87,7 +94,7 @@ export class BizzbloxConnectionsController {
     );
   }
 
-  @Post('/connections:select')
+  @Post('/connections\\:select')
   async select(
     @Req() request: BizzbloxVerifiedRequest,
     @Body() body: BizzbloxSelectConnectionDto
@@ -103,7 +110,7 @@ export class BizzbloxConnectionsController {
     );
   }
 
-  @Post('/connections:outcome')
+  @Post('/connections\\:outcome')
   async outcome(
     @Req() request: BizzbloxVerifiedRequest,
     @Body() body: BizzbloxConnectionOutcomeDto
@@ -119,7 +126,7 @@ export class BizzbloxConnectionsController {
     );
   }
 
-  @Post('/connections:disconnect')
+  @Post('/connections\\:disconnect')
   async disconnect(
     @Req() request: BizzbloxVerifiedRequest,
     @Body() body: BizzbloxDisconnectConnectionDto
@@ -134,7 +141,7 @@ export class BizzbloxConnectionsController {
     );
   }
 
-  @Post('/connections:reconnect')
+  @Post('/connections\\:reconnect')
   async reconnect(
     @Req() request: BizzbloxVerifiedRequest,
     @Body() body: BizzbloxReconnectConnectionDto

@@ -21,7 +21,7 @@ import { EnsureTenantDto } from './dto/tenant.dto';
 export class BizzbloxController {
   constructor(private readonly tenants: BizzbloxTenantService) {}
 
-  @Post('/tenants:ensure')
+  @Post('/tenants\\:ensure')
   async ensureTenant(
     @Req() request: BizzbloxVerifiedRequest,
     @Body() body: EnsureTenantDto
