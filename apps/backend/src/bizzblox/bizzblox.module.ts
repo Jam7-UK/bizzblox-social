@@ -66,7 +66,10 @@ import {
   PrismaBizzbloxPublicationStore,
 } from './bizzblox-publication.store';
 import { BizzbloxPostizClientFactory } from './bizzblox-postiz-client.factory';
-import { BizzbloxIamContextMiddleware } from './bizzblox-iam.middleware';
+import {
+  applyBizzbloxIamContext,
+  BizzbloxIamContextMiddleware,
+} from './bizzblox-iam.middleware';
 import { BizzbloxHealthController } from './bizzblox-health.controller';
 import { BizzbloxRuntimeOrganizationFactory } from './bizzblox-organization.factory';
 import { BizzbloxOAuthController } from './bizzblox-oauth.controller';
@@ -343,12 +346,6 @@ function connectionStateCodec(): BizzbloxConnectionStateCodec {
 })
 export class BizzbloxModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer
-      .apply(BizzbloxIamContextMiddleware)
-      .forRoutes(
-        BizzbloxController,
-        BizzbloxConnectionsController,
-        BizzbloxPublicationsController
-      );
+    applyBizzbloxIamContext(consumer);
   }
 }

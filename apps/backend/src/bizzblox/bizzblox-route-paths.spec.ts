@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 
 import { PATH_METADATA } from '@nestjs/common/constants';
-import { ValidationPipe } from '@nestjs/common';
+import { type MiddlewareConsumer, Module, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -9,6 +9,10 @@ import { BizzbloxAuthGuard } from './bizzblox-auth.guard';
 import { BizzbloxContractService } from './bizzblox-contract.service';
 import { BizzbloxConnectionsController } from './bizzblox-connections.controller';
 import { BizzbloxConnectionsService } from './bizzblox-connections.service';
+import {
+  applyBizzbloxIamContext,
+  BizzbloxIamContextMiddleware,
+} from './bizzblox-iam.middleware';
 import { BizzbloxPublicationsController } from './bizzblox-publications.controller';
 import { BizzbloxController } from './bizzblox.controller';
 
@@ -18,7 +22,11 @@ import { BizzbloxController } from './bizzblox.controller';
  * Every custom-method route must therefore escape its colon (`\\:`). The first
  * test proves that at the decorator level for all three controllers; the second
  * dispatches real HTTP requests through a Nest application so the routing that
- * production uses is what is asserted, not the decorator string alone.
+ * production uses is what is asserted, not the decorator string alone. The app
+ * also wires the IAM context middleware exactly as the production module does:
+ * Nest's overlapped-route check turns `forRoutes(Controller)` into a regular
+ * expression per route and broke on the escaped colon (startup crash,
+ * 2026-09-03), so a path-scoped selector is the only shape allowed here.
  */
 
 const CONTROLLERS = [
@@ -80,8 +88,24 @@ describe('BizzBLOX custom-method routes', () => {
           expiresAt: 1,
         }),
     };
+    const seenIam: unknown[] = [];
     let baseUrl = '';
     let close: () => Promise<void> = async () => {};
+
+    // Mirrors BizzbloxModule.configure so middleware registration runs for real.
+    @Module({
+      controllers: [BizzbloxConnectionsController],
+      providers: [
+        { provide: BizzbloxContractService, useValue: {} },
+        { provide: BizzbloxConnectionsService, useValue: connections },
+        BizzbloxIamContextMiddleware,
+      ],
+    })
+    class RouteSpecModule {
+      configure(consumer: MiddlewareConsumer): void {
+        applyBizzbloxIamContext(consumer);
+      }
+    }
 
     beforeAll(async () => {
       // Vitest transpiles with esbuild, which emits decorators but not
@@ -92,11 +116,7 @@ describe('BizzBLOX custom-method routes', () => {
         BizzbloxConnectionsController
       );
       const moduleRef = await Test.createTestingModule({
-        controllers: [BizzbloxConnectionsController],
-        providers: [
-          { provide: BizzbloxContractService, useValue: {} },
-          { provide: BizzbloxConnectionsService, useValue: connections },
-        ],
+        imports: [RouteSpecModule],
       })
         .overrideGuard(BizzbloxAuthGuard)
         .useValue({
@@ -104,6 +124,7 @@ describe('BizzBLOX custom-method routes', () => {
             switchToHttp: () => { getRequest: () => Record<string, unknown> };
           }) => {
             const request = context.switchToHttp().getRequest();
+            seenIam.push(request.bizzbloxIam);
             const suffix = String(request.originalUrl).split('/').pop() ?? '';
             request.bizzbloxAuth = {
               organizationId: 'postiz-org-1',
@@ -136,7 +157,11 @@ describe('BizzBLOX custom-method routes', () => {
     async function post(path: string, body: unknown) {
       const response = await fetch(`${baseUrl}/${path}`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          'x-bizzblox-iam-account': '123456789012',
+          'x-bizzblox-iam-principal': 'arn:aws:iam::123456789012:role/BizzbloxSocialBridge',
+        },
         body: JSON.stringify(body),
       });
       return { status: response.status, body: await response.json() };
@@ -148,6 +173,11 @@ describe('BizzBLOX custom-method routes', () => {
         outcomeHandle: 'outcome_opaque_abcdefghijklmnopqrstuvwxyz123456',
       });
       expect(outcome).toEqual({ status: 201, body: { outcome: 'failed' } });
+      // The IAM context middleware ran for the custom-method route.
+      expect(seenIam.at(-1)).toEqual({
+        accountId: '123456789012',
+        principalArn: 'arn:aws:iam::123456789012:role/BizzbloxSocialBridge',
+      });
       expect(connections.redeemOutcome).toHaveBeenCalledWith(
         'postiz-org-1',
         7,
