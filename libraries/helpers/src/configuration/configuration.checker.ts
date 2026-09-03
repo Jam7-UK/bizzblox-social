@@ -2,6 +2,9 @@ import { readFileSync, existsSync } from 'fs';
 import * as dotenv from 'dotenv';
 import { resolve } from 'path';
 
+/** Variables only the browser-facing Postiz frontend reads; the headless BizzBLOX service never uses them. */
+const FRONTEND_ONLY_URLS = ['MAIN_URL', 'BACKEND_INTERNAL_URL'] as const;
+
 export class ConfigurationChecker {
   cfg: dotenv.DotenvParseOutput;
   issues: string[] = [];
@@ -26,11 +29,17 @@ export class ConfigurationChecker {
   check() {
     this.checkDatabaseServers();
     this.checkNonEmpty('JWT_SECRET');
-    this.checkIsValidUrl('MAIN_URL');
     this.checkIsValidUrl('FRONTEND_URL');
     this.checkIsValidUrl('NEXT_PUBLIC_BACKEND_URL');
-    this.checkIsValidUrl('BACKEND_INTERNAL_URL');
+    if (!this.isServiceMode()) {
+      for (const key of FRONTEND_ONLY_URLS) this.checkIsValidUrl(key);
+    }
     this.checkNonEmpty('STORAGE_PROVIDER', 'Needed to setup storage.');
+  }
+
+  /** BIZZBLOX_SERVICE_MODE=1 runs the API headless behind the branded callback and IAM gateway. */
+  isServiceMode() {
+    return this.get('BIZZBLOX_SERVICE_MODE') === '1';
   }
 
   checkNonEmpty(key: string, description?: string): boolean {
@@ -70,8 +79,9 @@ export class ConfigurationChecker {
     try {
       const redisUrl = new URL(this.cfg.REDIS_URL);
 
-      if (redisUrl.protocol !== 'redis:') {
-        this.issues.push('REDIS_URL must start with redis://');
+      // ioredis accepts both schemes; rediss:// is TLS (in-transit encryption on ElastiCache).
+      if (redisUrl.protocol !== 'redis:' && redisUrl.protocol !== 'rediss:') {
+        this.issues.push('REDIS_URL must start with redis:// or rediss://');
       }
     } catch (error) {
       this.issues.push('REDIS_URL is not a valid URL');
