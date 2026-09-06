@@ -39,6 +39,10 @@ export class NostrProvider extends SocialAbstract implements SocialProvider {
     return 100000;
   }
 
+  override newConnectionStatus(): 'active' | 'inactive' {
+    return process.env.JWT_SECRET?.trim() ? 'active' : 'inactive';
+  }
+
   async customFields() {
     return [
       {

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SocialAbstract } from '@gitroom/nestjs-libraries/integrations/social.abstract';
 import { LinkedinPageProvider } from '@gitroom/nestjs-libraries/integrations/social/linkedin.page.provider';
 import { LinkedinProvider } from '@gitroom/nestjs-libraries/integrations/social/linkedin.provider';
+import { NostrProvider } from '@gitroom/nestjs-libraries/integrations/social/nostr.provider';
 import { XProvider } from '@gitroom/nestjs-libraries/integrations/social/x.provider';
 
 import { PostizBizzbloxConnectionProviderGateway } from './bizzblox-connection-provider.gateway';
@@ -14,6 +15,41 @@ class DefaultReadinessProvider extends SocialAbstract {
 }
 
 describe('Postiz BizzBLOX connection provider gateway', () => {
+  it('offers the Nostr form only while its local signing prerequisite is present', async () => {
+    const provider = new NostrProvider();
+    const gateway = new PostizBizzbloxConnectionProviderGateway(
+      {
+        getAllIntegrations: async () => ({
+          social: [
+            {
+              identifier: provider.identifier,
+              name: provider.name,
+              customFields: await provider.customFields(),
+            },
+          ],
+          article: [],
+        }),
+        getNewConnectionStatus: () => provider.newConnectionStatus(),
+      } as never,
+      {} as never,
+      {} as never
+    );
+
+    vi.stubEnv('JWT_SECRET', undefined);
+    expect(await gateway.listProviders()).toEqual([]);
+    vi.stubEnv('JWT_SECRET', '   ');
+    expect(await gateway.listProviders()).toEqual([]);
+    vi.stubEnv('JWT_SECRET', 'test-only-signing-secret');
+    expect(await gateway.listProviders()).toEqual([
+      {
+        providerKey: 'nostr',
+        label: 'Nostr',
+        connectionMode: 'form',
+        newConnectionStatus: 'active',
+      },
+    ]);
+  });
+
   it('keeps an unaudited provider inactive for new connections by default', () => {
     expect(new DefaultReadinessProvider().newConnectionStatus()).toBe(
       'inactive'
