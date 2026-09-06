@@ -3,6 +3,7 @@ import { Integration } from '@prisma/client';
 import {
   AuthTokenDetails,
   PendingCheckResponse,
+  type NewConnectionStatus,
 } from '@gitroom/nestjs-libraries/integrations/social/social.integrations.interface';
 import { ApplicationFailure } from '@temporalio/activity';
 import { readOrFetch } from '@gitroom/helpers/utils/read.or.fetch';
@@ -123,6 +124,10 @@ function safeStringify(obj: any) {
 export abstract class SocialAbstract {
   abstract identifier: string;
   maxConcurrentJob = 1;
+
+  public newConnectionStatus(): NewConnectionStatus {
+    return 'inactive';
+  }
 
   public handleErrors(
     body: string,

@@ -220,6 +220,14 @@ export class IntegrationManager {
   getAllowedSocialsIntegrations() {
     return socialIntegrationList.map((p) => p.identifier);
   }
+  getNewConnectionStatus(integration: string) {
+    if (this.isHiddenProvider(integration)) return 'inactive';
+    return (
+      socialIntegrationList
+        .find((item) => item.identifier === integration)
+        ?.newConnectionStatus() ?? 'inactive'
+    );
+  }
   getSocialIntegration(integration: string): SocialProvider {
     return socialIntegrationList.find((i) => i.identifier === integration)!;
   }

@@ -91,6 +91,12 @@ export class XProvider extends SocialAbstract implements SocialProvider {
   editor = 'html' as const;
   dto = XDto;
 
+  override newConnectionStatus() {
+    return process.env.X_API_KEY?.trim() && process.env.X_API_SECRET?.trim()
+      ? ('active' as const)
+      : ('inactive' as const);
+  }
+
   maxLength(additionalSettings?: any, settings?: any) {
     // Articles are long-form content, the tweet character limit doesn't apply.
     if (settings?.post_type === 'article') {
