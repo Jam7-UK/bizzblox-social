@@ -152,7 +152,7 @@ export class PostizBizzbloxConnectionProviderGateway
       throw new Error('Social provider catalogue is invalid.');
     }
     const seen = new Set<string>();
-    const providers = catalogue.social.map((item) => {
+    const providers = catalogue.social.flatMap((item) => {
       if (!isRecord(item))
         throw new Error('Social provider catalogue is invalid.');
       const providerKey = boundedText(item.identifier, 100);
@@ -165,17 +165,21 @@ export class PostizBizzbloxConnectionProviderGateway
       ) {
         throw new Error('Social provider catalogue is invalid.');
       }
+      if (this.connectionStatus(providerKey) !== 'active') return [];
       seen.add(providerKey);
-      return Object.freeze({
-        providerKey,
-        label,
-        connectionMode:
-          item.customFields !== undefined
-            ? ('form' as const)
-            : item.isWeb3 === true
-            ? ('manual' as const)
-            : ('oauth' as const),
-      });
+      return [
+        Object.freeze({
+          providerKey,
+          label,
+          connectionMode:
+            item.customFields !== undefined
+              ? ('form' as const)
+              : item.isWeb3 === true
+              ? ('manual' as const)
+              : ('oauth' as const),
+          newConnectionStatus: 'active' as const,
+        }),
+      ];
     });
     return Object.freeze(
       providers.sort(
@@ -184,6 +188,10 @@ export class PostizBizzbloxConnectionProviderGateway
           left.providerKey.localeCompare(right.providerKey)
       )
     );
+  }
+
+  connectionStatus(identifier: string): 'active' | 'inactive' {
+    return this.manager.getNewConnectionStatus(identifier);
   }
 
   private provider(identifier: string): SelectableProvider {

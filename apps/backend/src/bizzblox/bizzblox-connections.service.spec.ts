@@ -14,8 +14,46 @@ const AMP_RETURN_URLS = {
 } as const;
 
 describe('BizzBLOX managed social consent', () => {
+  it.each(['oauth-provider', 'form-provider', 'manual-provider'])(
+    'refuses an inactive %s before description, provider work, or state persistence',
+    async (provider) => {
+      const providers: BizzbloxConnectionProviderGateway = {
+        connectionStatus: vi.fn().mockReturnValue('inactive'),
+        listProviders: vi.fn(),
+        beginAuthorization: vi.fn(),
+        completeAuthorization: vi.fn(),
+        completeCustomFields: vi.fn(),
+        completeManual: vi.fn(),
+        selectAccount: vi.fn(),
+        describe: vi.fn(),
+      };
+      const states: BizzbloxConnectionStateStore = {
+        saveAuthorization: vi.fn(),
+        consumeAuthorization: vi.fn(),
+        saveSelection: vi.fn(),
+        consumeSelection: vi.fn(),
+      };
+      const service = new BizzbloxConnectionsService(providers, states, {
+        ampReturnUrls: AMP_RETURN_URLS,
+        clock: () => new Date('2026-09-06T18:00:00.000Z'),
+        publicOrigin: 'https://social.bizzblox.com',
+      });
+
+      await expect(
+        service.begin('postiz-org-1', 7, 'dev', { provider })
+      ).rejects.toThrow('Social provider is inactive for new connections.');
+      expect(providers.describe).not.toHaveBeenCalled();
+      expect(providers.beginAuthorization).not.toHaveBeenCalled();
+      expect(providers.completeCustomFields).not.toHaveBeenCalled();
+      expect(providers.completeManual).not.toHaveBeenCalled();
+      expect(states.saveAuthorization).not.toHaveBeenCalled();
+      expect(states.saveSelection).not.toHaveBeenCalled();
+    }
+  );
+
   it('reconnects a form provider through the same exact channel claim, not generic consent', async () => {
     const providers: BizzbloxConnectionProviderGateway = {
+      connectionStatus: vi.fn().mockReturnValue('inactive'),
       listProviders: vi.fn(),
       beginAuthorization: vi.fn(),
       completeAuthorization: vi.fn(),
@@ -81,10 +119,12 @@ describe('BizzBLOX managed social consent', () => {
       reconnectIntegrationId: 'integration-linkedin-1',
     });
     expect(providers.beginAuthorization).not.toHaveBeenCalled();
+    expect(providers.connectionStatus).not.toHaveBeenCalled();
   });
 
   it('starts reconnect consent only for the exact opaque channel and revision', async () => {
     const providers: BizzbloxConnectionProviderGateway = {
+      connectionStatus: vi.fn().mockReturnValue('inactive'),
       listProviders: vi.fn(),
       completeAuthorization: vi.fn(),
       completeCustomFields: vi.fn(),
@@ -146,10 +186,12 @@ describe('BizzBLOX managed social consent', () => {
       'linkedin',
       'https://social.bizzblox.com/oauth/bizzblox/callback/linkedin'
     );
+    expect(providers.connectionStatus).not.toHaveBeenCalled();
   });
 
   it('disconnects one opaque channel only through its exact tenant and revision', async () => {
     const providers: BizzbloxConnectionProviderGateway = {
+      connectionStatus: vi.fn().mockReturnValue('inactive'),
       listProviders: vi.fn(),
       beginAuthorization: vi.fn(),
       completeAuthorization: vi.fn(),
@@ -209,10 +251,12 @@ describe('BizzBLOX managed social consent', () => {
     });
     expect(JSON.stringify(result)).not.toContain('postiz-org-1');
     expect(JSON.stringify(result)).not.toContain('integration-linkedin-1');
+    expect(providers.connectionStatus).not.toHaveBeenCalled();
   });
 
   it('begins provider consent with a fixed branded callback and stores exact-tenant state', async () => {
     const providers: BizzbloxConnectionProviderGateway = {
+      connectionStatus: vi.fn().mockReturnValue('active'),
       listProviders: vi.fn(),
       beginAuthorization: vi.fn().mockResolvedValue({
         authorizationUrl: 'https://www.linkedin.com/oauth/v2/authorization',
@@ -281,6 +325,7 @@ describe('BizzBLOX managed social consent', () => {
       outcomeHandle: 'outcome_opaque_abcdefghijklmnopqrstuvwxyz123456',
     };
     const providers: BizzbloxConnectionProviderGateway = {
+      connectionStatus: vi.fn().mockReturnValue('inactive'),
       listProviders: vi.fn(),
       beginAuthorization: vi.fn(),
       completeAuthorization: vi.fn().mockResolvedValue({
@@ -359,6 +404,7 @@ describe('BizzBLOX managed social consent', () => {
     });
     expect(JSON.stringify(connected)).not.toContain('postiz-org-1');
     expect(JSON.stringify(connected)).not.toContain('integration-linkedin-1');
+    expect(providers.connectionStatus).not.toHaveBeenCalled();
   });
 
   it('reads OAuth 1.0a callbacks through the provider mapping and records a failed outcome for a state-only return', async () => {
@@ -374,6 +420,7 @@ describe('BizzBLOX managed social consent', () => {
       outcomeHandle: 'outcome_opaque_abcdefghijklmnopqrstuvwxyz123456',
     };
     const providers: BizzbloxConnectionProviderGateway = {
+      connectionStatus: vi.fn().mockReturnValue('inactive'),
       listProviders: vi.fn(),
       beginAuthorization: vi.fn(),
       readCallback: vi.fn((_provider, query: Record<string, string>) => ({
@@ -449,6 +496,7 @@ describe('BizzBLOX managed social consent', () => {
 
   it('records a failed outcome when an OAuth 2.0 provider returns an error with its state', async () => {
     const providers: BizzbloxConnectionProviderGateway = {
+      connectionStatus: vi.fn().mockReturnValue('inactive'),
       listProviders: vi.fn(),
       beginAuthorization: vi.fn(),
       completeAuthorization: vi.fn(),
@@ -509,6 +557,7 @@ describe('BizzBLOX managed social consent', () => {
 
   it('turns provider page choices into short-lived opaque AMP selections', async () => {
     const providers: BizzbloxConnectionProviderGateway = {
+      connectionStatus: vi.fn().mockReturnValue('inactive'),
       listProviders: vi.fn(),
       beginAuthorization: vi.fn(),
       completeAuthorization: vi.fn().mockResolvedValue({
@@ -599,6 +648,7 @@ describe('BizzBLOX managed social consent', () => {
 
   it('selects one server-held page only for the exact tenant and revision', async () => {
     const providers: BizzbloxConnectionProviderGateway = {
+      connectionStatus: vi.fn().mockReturnValue('inactive'),
       listProviders: vi.fn(),
       beginAuthorization: vi.fn(),
       completeAuthorization: vi.fn(),
@@ -675,6 +725,7 @@ describe('BizzBLOX managed social consent', () => {
     expect(JSON.stringify(connected)).not.toContain('postiz-org-1');
     expect(JSON.stringify(connected)).not.toContain('integration-linkedin-1');
     expect(JSON.stringify(connected)).not.toContain('remote-page-123');
+    expect(providers.connectionStatus).not.toHaveBeenCalled();
   });
 
   it('returns live provider fields and completes them without exposing credentials', async () => {
@@ -691,6 +742,7 @@ describe('BizzBLOX managed social consent', () => {
       },
     ];
     const providers: BizzbloxConnectionProviderGateway = {
+      connectionStatus: vi.fn().mockReturnValue('active'),
       listProviders: vi.fn(),
       beginAuthorization: vi.fn(),
       completeAuthorization: vi.fn(),
@@ -753,6 +805,7 @@ describe('BizzBLOX managed social consent', () => {
 
   it('keeps provider-specific manual authorization behind the same AMP flow', async () => {
     const providers: BizzbloxConnectionProviderGateway = {
+      connectionStatus: vi.fn().mockReturnValue('active'),
       listProviders: vi.fn(),
       beginAuthorization: vi.fn(),
       completeAuthorization: vi.fn(),
@@ -816,6 +869,7 @@ describe('BizzBLOX managed social consent', () => {
 
   it('binds OAuth state to the verified environment return origin', async () => {
     const providers: BizzbloxConnectionProviderGateway = {
+      connectionStatus: vi.fn().mockReturnValue('active'),
       listProviders: vi.fn(),
       beginAuthorization: vi.fn().mockResolvedValue({
         authorizationUrl: 'https://www.linkedin.com/oauth/v2/authorization',

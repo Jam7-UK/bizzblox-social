@@ -37,6 +37,7 @@ export type BizzbloxConnectionProviderSummary = Readonly<{
   providerKey: string;
   label: string;
   connectionMode: 'oauth' | 'form' | 'manual';
+  newConnectionStatus: 'active';
 }>;
 
 export type BizzbloxProviderSelectionOption = Readonly<{
@@ -53,6 +54,7 @@ export type BizzbloxProviderConnectionOutcome = Readonly<{
 
 export interface BizzbloxConnectionProviderGateway {
   listProviders(): Promise<readonly BizzbloxConnectionProviderSummary[]>;
+  connectionStatus(provider: string): 'active' | 'inactive';
   describe(provider: string): Promise<BizzbloxConnectionProviderDescription>;
   beginAuthorization(
     provider: string,
@@ -507,6 +509,11 @@ export class BizzbloxConnectionsService {
     }>
   ) {
     const provider = providerIdentifier(input.provider);
+    if (this.providers.connectionStatus(provider) !== 'active') {
+      throw new BizzbloxConnectionInputError(
+        'Social provider is inactive for new connections.'
+      );
+    }
     const description = await this.providers.describe(provider);
     if (description.mode === 'form') {
       if (!input.fields) return description;

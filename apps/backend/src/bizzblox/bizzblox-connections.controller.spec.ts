@@ -16,6 +16,7 @@ describe('BizzBLOX internal connection controller', () => {
           providerKey: 'linkedin',
           label: 'LinkedIn',
           connectionMode: 'oauth',
+          newConnectionStatus: 'active',
         },
       ]),
       begin: vi.fn().mockResolvedValue({
@@ -62,7 +63,12 @@ describe('BizzBLOX internal connection controller', () => {
     } as BizzbloxVerifiedRequest;
 
     await expect(controller.providers(providerRequest)).resolves.toEqual([
-      { providerKey: 'linkedin', label: 'LinkedIn', connectionMode: 'oauth' },
+      {
+        providerKey: 'linkedin',
+        label: 'LinkedIn',
+        connectionMode: 'oauth',
+        newConnectionStatus: 'active',
+      },
     ]);
     await controller.begin(beginRequest, { provider: 'linkedin' });
     await controller.select(selectRequest, {

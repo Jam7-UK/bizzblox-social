@@ -64,6 +64,8 @@ export type GenerateAuthUrlResponse = {
   state: string;
 };
 
+export type NewConnectionStatus = 'active' | 'inactive';
+
 export type AuthTokenDetails = {
   id: string;
   name: string;
@@ -164,6 +166,7 @@ export interface SocialProvider
   extends IAuthenticator,
     ISocialMediaIntegration {
   identifier: string;
+  newConnectionStatus(): NewConnectionStatus;
   refreshWait?: boolean;
   convertToJPEG?: boolean;
   stripLinks?: () => boolean;

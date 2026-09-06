@@ -1,10 +1,77 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { SocialAbstract } from '@gitroom/nestjs-libraries/integrations/social.abstract';
+import { LinkedinPageProvider } from '@gitroom/nestjs-libraries/integrations/social/linkedin.page.provider';
+import { LinkedinProvider } from '@gitroom/nestjs-libraries/integrations/social/linkedin.provider';
 import { XProvider } from '@gitroom/nestjs-libraries/integrations/social/x.provider';
 
 import { PostizBizzbloxConnectionProviderGateway } from './bizzblox-connection-provider.gateway';
 
+afterEach(() => vi.unstubAllEnvs());
+
+class DefaultReadinessProvider extends SocialAbstract {
+  identifier = 'default-readiness';
+}
+
 describe('Postiz BizzBLOX connection provider gateway', () => {
+  it('keeps an unaudited provider inactive for new connections by default', () => {
+    expect(new DefaultReadinessProvider().newConnectionStatus()).toBe(
+      'inactive'
+    );
+  });
+
+  it('activates LinkedIn and its page variant only with both non-blank prerequisites', () => {
+    const linkedin = new LinkedinProvider();
+    const linkedinPage = new LinkedinPageProvider();
+
+    vi.stubEnv('LINKEDIN_CLIENT_ID', undefined);
+    vi.stubEnv('LINKEDIN_CLIENT_SECRET', 'secret');
+    expect(linkedin.newConnectionStatus()).toBe('inactive');
+    expect(linkedinPage.newConnectionStatus()).toBe('inactive');
+
+    vi.stubEnv('LINKEDIN_CLIENT_ID', 'client-id');
+    vi.stubEnv('LINKEDIN_CLIENT_SECRET', undefined);
+    expect(linkedin.newConnectionStatus()).toBe('inactive');
+    expect(linkedinPage.newConnectionStatus()).toBe('inactive');
+
+    vi.stubEnv('LINKEDIN_CLIENT_ID', '   ');
+    vi.stubEnv('LINKEDIN_CLIENT_SECRET', 'secret');
+    expect(linkedin.newConnectionStatus()).toBe('inactive');
+    expect(linkedinPage.newConnectionStatus()).toBe('inactive');
+
+    vi.stubEnv('LINKEDIN_CLIENT_ID', 'client-id');
+    vi.stubEnv('LINKEDIN_CLIENT_SECRET', '   ');
+    expect(linkedin.newConnectionStatus()).toBe('inactive');
+    expect(linkedinPage.newConnectionStatus()).toBe('inactive');
+
+    vi.stubEnv('LINKEDIN_CLIENT_SECRET', 'secret');
+    expect(linkedin.newConnectionStatus()).toBe('active');
+    expect(linkedinPage.newConnectionStatus()).toBe('active');
+  });
+
+  it('activates X only with both non-blank OAuth 1.0a prerequisites', () => {
+    const provider = new XProvider();
+
+    vi.stubEnv('X_API_KEY', undefined);
+    vi.stubEnv('X_API_SECRET', 'secret');
+    expect(provider.newConnectionStatus()).toBe('inactive');
+
+    vi.stubEnv('X_API_KEY', 'api-key');
+    vi.stubEnv('X_API_SECRET', undefined);
+    expect(provider.newConnectionStatus()).toBe('inactive');
+
+    vi.stubEnv('X_API_KEY', '   ');
+    vi.stubEnv('X_API_SECRET', 'secret');
+    expect(provider.newConnectionStatus()).toBe('inactive');
+
+    vi.stubEnv('X_API_KEY', 'api-key');
+    vi.stubEnv('X_API_SECRET', '   ');
+    expect(provider.newConnectionStatus()).toBe('inactive');
+
+    vi.stubEnv('X_API_SECRET', 'secret');
+    expect(provider.newConnectionStatus()).toBe('active');
+  });
+
   it('maps each provider redirect query to the state and code its authenticate expects', () => {
     const providers: Record<string, unknown> = {
       x: new XProvider(),
@@ -115,7 +182,7 @@ describe('Postiz BizzBLOX connection provider gateway', () => {
     expect(integrations.deleteChannel).not.toHaveBeenCalled();
   });
 
-  it('projects the live configured provider catalogue without provider secrets or implementation fields', async () => {
+  it('projects only active providers with the compatibility marker and no provider secrets', async () => {
     const manager = {
       getAllIntegrations: vi.fn().mockResolvedValue({
         social: [
@@ -125,6 +192,8 @@ describe('Postiz BizzBLOX connection provider gateway', () => {
             toolTip: 'Professional network',
             editor: 'normal',
             isExternal: false,
+            runtimeSecret: 'linkedin-secret-never-returned',
+            credentialVariable: 'LINKEDIN_CLIENT_SECRET',
           },
           {
             identifier: 'bluesky',
@@ -140,6 +209,9 @@ describe('Postiz BizzBLOX connection provider gateway', () => {
         ],
         article: [],
       }),
+      getNewConnectionStatus: vi.fn((identifier: string) =>
+        identifier === 'linkedin' ? 'active' : 'inactive'
+      ),
     };
     const gateway = new PostizBizzbloxConnectionProviderGateway(
       manager as never,
@@ -147,10 +219,19 @@ describe('Postiz BizzBLOX connection provider gateway', () => {
       {} as never
     );
 
-    await expect(gateway.listProviders()).resolves.toEqual([
-      { providerKey: 'bluesky', label: 'Bluesky', connectionMode: 'form' },
-      { providerKey: 'linkedin', label: 'LinkedIn', connectionMode: 'oauth' },
+    const providers = await gateway.listProviders();
+    expect(providers).toEqual([
+      {
+        providerKey: 'linkedin',
+        label: 'LinkedIn',
+        connectionMode: 'oauth',
+        newConnectionStatus: 'active',
+      },
     ]);
+    expect(JSON.stringify(providers)).not.toContain(
+      'linkedin-secret-never-returned'
+    );
+    expect(JSON.stringify(providers)).not.toContain('LINKEDIN_CLIENT_SECRET');
   });
 
   it('uses the fixed callback, stores credentials in the exact organization, and hides page secrets', async () => {

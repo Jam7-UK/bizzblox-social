@@ -74,6 +74,14 @@ export class LinkedinProvider extends SocialAbstract implements SocialProvider {
   override maxConcurrentJob = 2;
   refreshWait = true;
   editor = 'normal' as const;
+
+  override newConnectionStatus() {
+    return process.env.LINKEDIN_CLIENT_ID?.trim() &&
+      process.env.LINKEDIN_CLIENT_SECRET?.trim()
+      ? ('active' as const)
+      : ('inactive' as const);
+  }
+
   maxLength() {
     return 3000;
   }
