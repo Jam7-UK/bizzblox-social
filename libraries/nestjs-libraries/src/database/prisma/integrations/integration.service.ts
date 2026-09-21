@@ -248,7 +248,11 @@ export class IntegrationService {
     }
 
     if (
-      await this._integrationRepository.getIntegrationByInternalId(org, auth.id)
+      await this._integrationRepository.getIntegrationByInternalId(
+        org,
+        auth.id,
+        newProvider
+      )
     ) {
       throw new NotEnoughScopes(
         'This account is already connected as another channel, please delete one of them first'
@@ -287,7 +291,11 @@ export class IntegrationService {
     // the account already exists on the new provider: the normal upsert
     // updates it, nothing to adopt
     if (
-      await this._integrationRepository.getIntegrationByInternalId(org, auth.id)
+      await this._integrationRepository.getIntegrationByInternalId(
+        org,
+        auth.id,
+        newProvider
+      )
     ) {
       return;
     }
@@ -413,8 +421,16 @@ export class IntegrationService {
     return this._integrationRepository.disableIntegrations(org, totalChannels);
   }
 
-  async checkForDeletedOnceAndUpdate(org: string, page: string) {
-    return this._integrationRepository.checkForDeletedOnceAndUpdate(org, page);
+  async checkForDeletedOnceAndUpdate(
+    org: string,
+    page: string,
+    providerIdentifier: string
+  ) {
+    return this._integrationRepository.checkForDeletedOnceAndUpdate(
+      org,
+      page,
+      providerIdentifier
+    );
   }
 
   async saveProviderPage(org: string, id: string, data: any) {
@@ -445,10 +461,6 @@ export class IntegrationService {
       data
     );
 
-    await this.checkForDeletedOnceAndUpdate(
-      org,
-      String(getIntegrationInformation.id)
-    );
     await this._integrationRepository.updateIntegration(id, {
       picture: getIntegrationInformation.picture,
       internalId: String(getIntegrationInformation.id),
