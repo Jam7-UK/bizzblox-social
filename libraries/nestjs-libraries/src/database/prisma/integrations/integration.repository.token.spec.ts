@@ -26,8 +26,10 @@ describe('managed integration token persistence', () => {
       unused,
       unused,
       unused,
-      tokens
+      tokens,
+      unused
     );
+    vi.spyOn(repository, 'reserveProviderAccount').mockResolvedValue(undefined);
 
     const stored = await repository.createOrUpdateIntegration(
       undefined,
@@ -110,8 +112,10 @@ describe('managed integration token persistence', () => {
       unused,
       unused,
       unused,
-      tokens
+      tokens,
+      unused
     );
+    vi.spyOn(repository, 'reserveProviderAccount').mockResolvedValue(undefined);
 
     await repository.createOrUpdateIntegration(
       undefined,
@@ -131,6 +135,7 @@ describe('managed integration token persistence', () => {
         id: { not: 'integration_current' },
         organizationId: 'organization_123',
         rootInternalId: 'root-account',
+        providerIdentifier: 'linkedin',
       },
       select: { id: true, organizationId: true },
     });
@@ -188,8 +193,10 @@ describe('managed integration token persistence', () => {
       unused,
       unused,
       unused,
-      tokens
+      tokens,
+      unused
     );
+    vi.spyOn(repository, 'reserveProviderAccount').mockResolvedValue(undefined);
 
     await repository.createOrUpdateIntegration(
       undefined,
@@ -217,6 +224,11 @@ describe('managed integration token persistence', () => {
     const integrationModel = {
       integration: {
         findUnique: vi.fn().mockResolvedValue(null),
+        findFirst: vi.fn().mockResolvedValue({
+          type: 'social',
+          providerIdentifier: 'linkedin',
+        }),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
         update: vi.fn().mockImplementation(async ({ data }) => data),
       },
     };
@@ -237,8 +249,10 @@ describe('managed integration token persistence', () => {
       unused,
       unused,
       unused,
-      tokens
+      tokens,
+      unused
     );
+    vi.spyOn(repository, 'reserveProviderAccount').mockResolvedValue(undefined);
 
     await repository.updateIntegration('integration_current', {
       internalId: 'selected-provider-account',
@@ -280,8 +294,10 @@ describe('managed integration token persistence', () => {
       unused,
       unused,
       unused,
-      tokens
+      tokens,
+      unused
     );
+    vi.spyOn(repository, 'reserveProviderAccount').mockResolvedValue(undefined);
     const stored = {
       id: 'integration_current',
       organizationId: 'organization_123',

@@ -1,8 +1,11 @@
-import { PrismaRepository } from '@gitroom/nestjs-libraries/database/prisma/prisma.service';
+import {
+  PrismaRepository,
+  PrismaTransaction,
+} from '@gitroom/nestjs-libraries/database/prisma/prisma.service';
 import { Inject, Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'crypto';
 import dayjs from 'dayjs';
-import { Integration } from '@prisma/client';
+import { Integration, Prisma } from '@prisma/client';
 import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
 import { IntegrationTimeDto } from '@gitroom/nestjs-libraries/dtos/integrations/integration.time.dto';
 import { UploadFactory } from '@gitroom/nestjs-libraries/upload/upload.factory';
@@ -23,8 +26,68 @@ export class IntegrationRepository {
     private _customers: PrismaRepository<'customer'>,
     private _mentions: PrismaRepository<'mentions'>,
     @Inject(PROVIDER_TOKEN_CODEC)
-    private _providerTokens: ProviderTokenCodec
+    private _providerTokens: ProviderTokenCodec,
+    private _transaction: PrismaTransaction
   ) {}
+
+  /** Reserve before any identity or token write. Failed connects never release ownership. */
+  async reserveProviderAccount(
+    org: string,
+    provider: string,
+    externalAccountId: string
+  ) {
+    if (!org || !provider || !externalAccountId) {
+      throw new Error('Social account ownership identity is incomplete.');
+    }
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await this._transaction.model.$transaction(
+          async (transaction) => {
+            const owner =
+              await transaction.bizzbloxSocialAccountOwnership.upsert({
+                where: {
+                  providerIdentifier_externalAccountId: {
+                    providerIdentifier: provider,
+                    externalAccountId,
+                  },
+                },
+                create: {
+                  providerIdentifier: provider,
+                  externalAccountId,
+                  organizationId: org,
+                },
+                update: {},
+              });
+            const foreign = await transaction.integration.findFirst({
+              where: {
+                providerIdentifier: provider,
+                internalId: externalAccountId,
+                organizationId: { not: org },
+                deletedAt: null,
+                inBetweenSteps: false,
+              },
+              select: { id: true },
+            });
+            if (owner.organizationId !== org || foreign) {
+              throw new Error(
+                'This social account already belongs to another workspace or environment.'
+              );
+            }
+          },
+          { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+        );
+        return;
+      } catch (error) {
+        if (
+          attempt < 2 &&
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          (error.code === 'P2002' || error.code === 'P2034')
+        )
+          continue;
+        throw error;
+      }
+    }
+  }
 
   private async sealProviderToken(
     organizationId: string,
@@ -41,6 +104,13 @@ export class IntegrationRepository {
   async openForProviderExecution<T extends Integration>(
     integration: T
   ): Promise<T> {
+    if (integration.type === 'social' && !integration.inBetweenSteps) {
+      await this.reserveProviderAccount(
+        integration.organizationId,
+        integration.providerIdentifier,
+        integration.internalId
+      );
+    }
     const token = await this._providerTokens.open(
       {
         integrationId: integration.id,
@@ -191,6 +261,33 @@ export class IntegrationRepository {
   }
 
   async updateIntegration(id: string, params: Partial<Integration>) {
+    const current = await this._integration.model.integration.findFirst({
+      where: { id, organizationId: params.organizationId },
+    });
+    if (!current || !params.organizationId || !params.internalId) {
+      throw new Error('Social account ownership identity is incomplete.');
+    }
+    const providerIdentifier =
+      params.providerIdentifier ?? current.providerIdentifier;
+    if (current.type === 'social' && !current.inBetweenSteps) {
+      await this.reserveProviderAccount(
+        current.organizationId,
+        current.providerIdentifier,
+        current.internalId
+      );
+    }
+    if (current.type === 'social' && params.inBetweenSteps !== true) {
+      await this.reserveProviderAccount(
+        params.organizationId,
+        providerIdentifier,
+        params.internalId
+      );
+    }
+    await this.checkForDeletedOnceAndUpdate(
+      params.organizationId,
+      params.internalId,
+      providerIdentifier
+    );
     if (
       params.picture &&
       (params.picture.indexOf(process.env.CLOUDFLARE_BUCKET_URL!) === -1 ||
@@ -201,8 +298,9 @@ export class IntegrationRepository {
 
     const existing = await this._integration.model.integration.findUnique({
       where: {
-        organizationId_internalId: {
+        organizationId_providerIdentifier_internalId: {
           organizationId: params.organizationId!,
+          providerIdentifier,
           internalId: params.internalId,
         },
       },
@@ -278,14 +376,23 @@ export class IntegrationRepository {
     });
   }
 
-  getIntegrationByInternalId(org: string, internalId: string) {
-    return this._integration.model.integration.findFirst({
+  async getIntegrationByInternalId(
+    org: string,
+    internalId: string,
+    providerIdentifier?: string
+  ) {
+    const rows = await this._integration.model.integration.findMany({
       where: {
         organizationId: org,
         internalId,
+        ...(providerIdentifier ? { providerIdentifier } : {}),
         deletedAt: null,
       },
+      take: 2,
     });
+    if (rows.length > 1)
+      throw new Error('Social account provider identity is ambiguous.');
+    return rows[0] ?? null;
   }
 
   // Moves a channel to another provider in place (MIGRATE_PROVIDERS): only the
@@ -300,14 +407,28 @@ export class IntegrationRepository {
     providerIdentifier: string,
     rootInternalId: string
   ) {
+    const current = await this._integration.model.integration.findFirst({
+      where: { id, organizationId: org },
+    });
+    if (!current)
+      throw new Error('Social account ownership identity is incomplete.');
+    if (current.type === 'social' && !current.inBetweenSteps) {
+      await this.reserveProviderAccount(
+        org,
+        current.providerIdentifier,
+        current.internalId
+      );
+    }
+    await this.reserveProviderAccount(org, providerIdentifier, internalId);
     // A soft-deleted channel can still hold the target internalId
     // (deleteChannel keeps it): rename it out of the way like updateIntegration
-    // does, otherwise the organizationId_internalId unique constraint rejects
+    // does, otherwise the organizationId_providerIdentifier_internalId unique constraint rejects
     // the migration. Live channels are rejected by the service before this.
     const existing = await this._integration.model.integration.findUnique({
       where: {
-        organizationId_internalId: {
+        organizationId_providerIdentifier_internalId: {
           organizationId: org,
+          providerIdentifier,
           internalId,
         },
       },
@@ -363,11 +484,14 @@ export class IntegrationRepository {
     timezone?: number,
     customInstanceDetails?: string
   ) {
+    if (type === 'social' && !isBetweenSteps)
+      await this.reserveProviderAccount(org, provider, internalId);
     const existingIntegration =
       await this._integration.model.integration.findUnique({
         where: {
-          organizationId_internalId: {
+          organizationId_providerIdentifier_internalId: {
             internalId,
+            providerIdentifier: provider,
             organizationId: org,
           },
         },
@@ -399,8 +523,9 @@ export class IntegrationRepository {
       : {};
     let upsert = await this._integration.model.integration.upsert({
       where: {
-        organizationId_internalId: {
+        organizationId_providerIdentifier_internalId: {
           internalId,
+          providerIdentifier: provider,
           organizationId: org,
         },
       },
@@ -482,6 +607,7 @@ export class IntegrationRepository {
             where: {
               organizationId: org,
               internalId: internalId,
+              providerIdentifier: provider,
             },
           })
         )?.rootInternalId || internalId;
@@ -491,6 +617,7 @@ export class IntegrationRepository {
           id: { not: upsert.id },
           organizationId: org,
           rootInternalId: rootId,
+          providerIdentifier: provider,
         },
         select: { id: true, organizationId: true },
       });
@@ -799,11 +926,16 @@ export class IntegrationRepository {
     }
   }
 
-  async checkForDeletedOnceAndUpdate(org: string, page: string) {
+  async checkForDeletedOnceAndUpdate(
+    org: string,
+    page: string,
+    providerIdentifier: string
+  ) {
     return this._integration.model.integration.updateMany({
       where: {
         organizationId: org,
         internalId: page,
+        providerIdentifier,
         deletedAt: {
           not: null,
         },

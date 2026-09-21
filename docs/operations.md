@@ -2,8 +2,9 @@
 
 This repository is the public AGPL provider runtime. AMP/Convex remains the
 control plane. Production is one dedicated, multi-AZ service in `eu-west-2`;
-development and BizzBLOX's current pre-production stage use fakes and must not
-receive its credentials or call its data plane.
+AMP development, pre-production and production use separate environment-bound
+claims and exact-workspace tenants in this shared service. Customer credentials,
+provider connections and account ownership must never cross those boundaries.
 
 ## Production profile
 
@@ -93,3 +94,72 @@ contact, on-call owner, costs, and change window belong in the separately
 approved production packet and provider readback. This source intentionally
 does not invent them. Deployment and per-workspace Integration V3 activation
 remain separate journaled operations.
+
+## Provider account ownership
+
+Each finalized provider account belongs to one managed service organization,
+which maps to one AMP environment/workspace pair. The shared service does not
+share that account's credentials, channels or publishing permission. Connection
+admission reserves the provider namespace and authoritative external account ID
+in `BizzbloxSocialAccountOwnership` under a serializable transaction and unique
+key. A same-owner reconnect is allowed; a foreign owner is rejected before any
+credential or final account identity is written. Identical IDs in different
+provider namespaces remain different identities.
+
+Intermediate OAuth consent identifies the administrator, who may manage several
+different pages or companies. It does not claim that administrator as the final
+social destination. Ownership is reserved when the final page/account is
+selected. Provider migration checks both the old account and the new identity.
+Token opening for finalized provider execution checks ownership again, so
+conflicting pre-existing accounts cannot keep publishing or refreshing silently.
+Conflicting rows and credentials are preserved for explicit reconciliation;
+this code never disconnects, deletes, reassigns or automatically replays them.
+Ownership reservations remain after failed connects and disconnects. Ordinary
+reconnect is not an account transfer.
+
+The guarantee is bounded by the authoritative provider namespace and account ID.
+Some alternate login methods issue app-scoped IDs for the same real-world
+profile. This change does not infer equivalence from display names, credentials
+or unsupported aliases. Cross-app identity correlation and live account inventory
+must be proved separately before claiming universal external-account exclusivity.
+Use distinct provider accounts for development, pre-production and production
+acceptance; never copy a production grant into another tenant.
+
+### Schema rollout and rollback
+
+The new ownership table retains its owner relationship. The integration unique
+key changes from `(organizationId, internalId)` to
+`(organizationId, providerIdentifier, internalId)`. Although the ownership table
+is additive, the unique-key replacement is not compatible with old writers.
+The generated patch is `scripts/migrations/20260921-social-account-ownership.sql`,
+derived from source revision `d3e1942aa8fe85b58b14459ecf5f2bf80f64351c`.
+A disposable original-schema rehearsal preserved every field of two legacy
+conflicting integration rows without assigning an arbitrary owner. Prepare and
+review the Prisma schema diff against the exact deployed schema,
+back up the database, and rehearse it on an isolated restored copy. Do not use
+`--accept-data-loss` to bypass a warning.
+
+Quiesce API and orchestrator provider work together, account for in-flight and
+ambiguous provider operations, apply the reviewed schema change, and start the
+matching API/orchestrator revision before reopening traffic. The approved operator applies the reviewed artifact
+through `pnpm exec prisma db execute --file scripts/migrations/20260921-social-account-ownership.sql
+--schema libraries/nestjs-libraries/src/database/prisma/schema.prisma`, with the
+separately authorized exact database target. This is a deployment prerequisite,
+not a command for an agent to run against a hosted database during source work.
+The ordinary managed schema runner retains its warning refusal. A rolling mixture
+of old writers and the new index is unsafe. Existing single-owner accounts are
+claimed on first use; conflicting active final accounts fail closed pending
+explicit reconciliation. No automatic backfill selects an arbitrary winner.
+
+Before a rollback to old code, prove the old `(organizationId, internalId)`
+uniqueness can be restored: the new schema permits equal IDs from different
+providers in one organization. If such pairs exist, stop and prepare a forward
+repair; do not delete accounts to restore an index. Retain the ownership ledger
+and all ambiguous publication history. Reverting code without the ownership
+fence reopens the defect and cannot certify isolated-account operation.
+
+The focused `social-account-ownership.yml` workflow uses a disposable PostgreSQL
+service. `SOCIAL_OWNERSHIP_TEST_DATABASE_URL` is a test-only override; never point
+it at a hosted or customer database. Real database tests exercise concurrent
+ownership, reconnect, namespaces, existing duplicates, account selection and
+migration, in addition to the normal token-sealing tests.

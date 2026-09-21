@@ -28,6 +28,7 @@ model Organization {
   errors               Errors[]
   github               GitHub[]
   Integration          Integration[]
+  socialAccountOwnership BizzbloxSocialAccountOwnership[]
   media                Media[]
   buyerOrganization    MessagesGroup[]
   notifications        Notifications[]
@@ -409,6 +410,19 @@ model Customer {
   @@unique([orgId, name, deletedAt])
 }
 
+// Admission ownership is retained across disconnects and failed credential writes.
+// Existing duplicate integrations are reconciled explicitly, never deleted here.
+model BizzbloxSocialAccountOwnership {
+  providerIdentifier String
+  externalAccountId  String
+  organizationId     String
+  createdAt          DateTime     @default(now())
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@id([providerIdentifier, externalAccountId])
+  @@index([organizationId])
+}
+
 model Integration {
   id                    String                 @id @default(cuid())
   internalId            String
@@ -440,7 +454,7 @@ model Integration {
   plugs                 Plugs[]
   posts                 Post[]
 
-  @@unique([organizationId, internalId])
+  @@unique([organizationId, providerIdentifier, internalId])
   @@index([rootInternalId])
   @@index([organizationId])
   @@index([providerIdentifier])

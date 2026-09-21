@@ -1,0 +1,42 @@
+name: Social account ownership PostgreSQL
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ownership:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          POSTGRES_PASSWORD: local-ownership-test
+          POSTGRES_DB: ownership
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ownership"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres:local-ownership-test@127.0.0.1:5432/ownership
+      SOCIAL_OWNERSHIP_TEST_DATABASE_URL: postgresql://postgres:local-ownership-test@127.0.0.1:5432/ownership
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22.22.1
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Prepare disposable schema
+        run: pnpm exec prisma db push --schema libraries/nestjs-libraries/src/database/prisma/schema.prisma --skip-generate
+      - name: Exercise ownership under concurrent PostgreSQL transactions
+        run: pnpm exec vitest run libraries/nestjs-libraries/src/database/prisma/integrations/integration.repository.ownership.spec.ts

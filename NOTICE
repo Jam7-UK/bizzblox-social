@@ -20,5 +20,9 @@ Jam 7 modifications include:
 - private AWS S3/KMS media storage and production container targets; and
 - BizzBLOX operational, source-publication, and security checks.
 
+2026-09-21 Jam 7 modification: transactional provider-account ownership admission
+and execution fencing, with isolated PostgreSQL regression checks. This preserves
+the upstream provider runtime and licence; it does not confer cross-tenant access.
+
 No trademark rights are granted by the AGPL licence. Postiz names and marks
 remain the property of their respective owners.
