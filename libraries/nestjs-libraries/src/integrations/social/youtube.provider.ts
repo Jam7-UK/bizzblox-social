@@ -1,4 +1,8 @@
 import {
+  googleRefreshFingerprint,
+  refreshGoogleCredentials,
+} from './google.oauth.refresh';
+import {
   AnalyticsData,
   AuthTokenDetails,
   PendingCheckResponse,
@@ -265,27 +269,26 @@ export class YoutubeProvider extends SocialAbstract implements SocialProvider {
     return undefined;
   }
 
-  async refreshToken(refresh_token: string): Promise<AuthTokenDetails> {
-    const { client, oauth2 } = clientAndYoutube();
-    client.setCredentials({ refresh_token });
-    const { credentials } = await client.refreshAccessToken();
-    const user = oauth2(client);
-    const expiryDate = new Date(credentials.expiry_date!);
-    const unixTimestamp =
-      Math.floor(expiryDate.getTime() / 1000) -
-      Math.floor(new Date().getTime() / 1000);
+  refreshReplaySafe = true;
 
-    const { data } = await user.userinfo.get();
+  refreshConfigurationFingerprint() {
+    return googleRefreshFingerprint(
+      process.env.YOUTUBE_CLIENT_ID || '',
+      process.env.YOUTUBE_CLIENT_SECRET || '',
+      this.scopes
+    );
+  }
 
-    return {
-      accessToken: credentials.access_token!,
-      expiresIn: unixTimestamp!,
-      refreshToken: credentials.refresh_token ?? refresh_token,
-      id: data.id!,
-      name: data.name!,
-      picture: data?.picture || '',
-      username: '',
-    };
+  async refreshToken(
+    refreshToken: string,
+    context?: { configurationVerified: boolean }
+  ): Promise<AuthTokenDetails> {
+    return refreshGoogleCredentials(
+      process.env.YOUTUBE_CLIENT_ID || '',
+      process.env.YOUTUBE_CLIENT_SECRET || '',
+      refreshToken,
+      context?.configurationVerified === true
+    );
   }
 
   async generateAuthUrl(_clientInformation?: unknown, callbackUrl?: string) {
@@ -365,7 +368,7 @@ export class YoutubeProvider extends SocialAbstract implements SocialProvider {
         subscriberCount: channel.statistics?.subscriberCount || '0',
       }));
     } catch (error) {
-      console.error('Failed to fetch YouTube channels:', error);
+      console.error('YouTube channel read failed.');
       return [];
     }
   }
@@ -395,7 +398,7 @@ export class YoutubeProvider extends SocialAbstract implements SocialProvider {
         username: channel.snippet?.customUrl || '',
       };
     } catch (error) {
-      console.error('Failed to fetch YouTube channel information:', error);
+      console.error('YouTube channel read failed.');
       throw error;
     }
   }

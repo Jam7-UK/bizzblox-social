@@ -1,3 +1,7 @@
+import {
+  decodeChannelHealth,
+  type ChannelHealthV1,
+} from '@bizzblox/postiz-agent-client';
 import { Inject, Injectable } from '@nestjs/common';
 
 import type {
@@ -16,6 +20,7 @@ type StoredChannel = Readonly<{
   contractDigest: string;
   integrationId: string;
   status: string;
+  health?: unknown;
 }>;
 
 type ChannelIdentity = Readonly<{
@@ -27,6 +32,14 @@ type ChannelIdentity = Readonly<{
 
 interface BizzbloxChannelTransaction {
   bizzbloxChannel: Readonly<{
+    findUnique(input: {
+      where: {
+        organizationId_integrationId: {
+          organizationId: string;
+          integrationId: string;
+        };
+      };
+    }): Promise<StoredChannel | null>;
     upsert(input: {
       where: Readonly<{
         organizationId_integrationId: Readonly<{
@@ -41,11 +54,13 @@ interface BizzbloxChannelTransaction {
         contractDigest: string;
         integrationId: string;
         status: BizzbloxManagedChannelStatus;
+        health?: ChannelHealthV1;
       }>;
       update: Readonly<{
         connectorRevision: number;
         contractDigest: string;
         status: BizzbloxManagedChannelStatus;
+        health?: ChannelHealthV1;
       }>;
     }): Promise<StoredChannel>;
     updateMany(input: {
@@ -60,7 +75,8 @@ interface BizzbloxChannelTransaction {
 
 export interface BizzbloxChannelDatabase {
   $transaction<T>(
-    operation: (transaction: BizzbloxChannelTransaction) => Promise<T>
+    operation: (transaction: BizzbloxChannelTransaction) => Promise<T>,
+    options?: { isolationLevel: 'Serializable' }
   ): Promise<T>;
   bizzbloxChannel: Readonly<{
     findUnique(input: {
@@ -92,6 +108,7 @@ function record(row: StoredChannel): BizzbloxManagedChannelRecord {
     contractDigest: row.contractDigest,
     integrationId: row.integrationId,
     status: status(row.status),
+    ...(row.health == null ? {} : { health: decodeChannelHealth(row.health) }),
   });
 }
 
@@ -121,48 +138,75 @@ export class PrismaBizzbloxChannelDirectory
     connectorRevision: number,
     candidates: readonly BizzbloxManagedChannelCandidate[]
   ) {
-    return await this.database.$transaction(async (transaction) => {
-      const rows: StoredChannel[] = [];
-      for (const candidate of candidates) {
-        rows.push(
-          await transaction.bizzbloxChannel.upsert({
+    return await this.database.$transaction(
+      async (transaction) => {
+        const rows: StoredChannel[] = [];
+        for (const candidate of candidates) {
+          const previous = await transaction.bizzbloxChannel.findUnique({
             where: {
               organizationId_integrationId: {
                 organizationId,
                 integrationId: candidate.integrationId,
               },
             },
-            create: {
-              organizationId,
-              externalChannelHandle: candidate.channelHandle,
-              connectorRevision,
-              contractDigest: candidate.contractDigest,
-              integrationId: candidate.integrationId,
-              status: candidate.status,
-            },
-            update: {
-              connectorRevision,
-              contractDigest: candidate.contractDigest,
-              status: candidate.status,
-            },
-          })
-        );
-      }
-      await transaction.bizzbloxChannel.updateMany({
-        where: {
-          organizationId,
-          ...(candidates.length
-            ? {
-                integrationId: {
-                  notIn: candidates.map((candidate) => candidate.integrationId),
+          });
+          const previousHealth =
+            previous?.health == null
+              ? undefined
+              : decodeChannelHealth(previous.health);
+          const stale =
+            previousHealth &&
+            (!candidate.health ||
+              candidate.health.revision < previousHealth.revision);
+          const nextHealth = stale ? previousHealth : candidate.health;
+          const nextStatus = stale
+            ? status(previous!.status)
+            : candidate.status;
+          rows.push(
+            await transaction.bizzbloxChannel.upsert({
+              where: {
+                organizationId_integrationId: {
+                  organizationId,
+                  integrationId: candidate.integrationId,
                 },
-              }
-            : {}),
-        },
-        data: { status: 'disconnected' },
-      });
-      return Object.freeze(rows.map(record));
-    });
+              },
+              create: {
+                organizationId,
+                externalChannelHandle: candidate.channelHandle,
+                connectorRevision,
+                contractDigest: candidate.contractDigest,
+                integrationId: candidate.integrationId,
+                status: nextStatus,
+                ...(nextHealth ? { health: nextHealth } : {}),
+              },
+              update: {
+                connectorRevision,
+                contractDigest: candidate.contractDigest,
+                status: nextStatus,
+                ...(nextHealth ? { health: nextHealth } : {}),
+              },
+            })
+          );
+        }
+        await transaction.bizzbloxChannel.updateMany({
+          where: {
+            organizationId,
+            ...(candidates.length
+              ? {
+                  integrationId: {
+                    notIn: candidates.map(
+                      (candidate) => candidate.integrationId
+                    ),
+                  },
+                }
+              : {}),
+          },
+          data: { status: 'disconnected' },
+        });
+        return Object.freeze(rows.map(record));
+      },
+      { isolationLevel: 'Serializable' }
+    );
   }
 
   async read(organizationId: string, channelHandle: string) {

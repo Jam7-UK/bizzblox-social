@@ -91,20 +91,13 @@ export class WhopProvider extends SocialAbstract implements SocialProvider {
       })
     ).json();
 
-    const userInfo = await (
-      await fetch('https://api.whop.com/oauth/userinfo', {
-        headers: { Authorization: `Bearer ${response.access_token}` },
-      })
-    ).json();
-
     return {
-      id: userInfo.sub,
-      name: userInfo.name || userInfo.preferred_username || '',
       accessToken: response.access_token,
       refreshToken: response.refresh_token,
       expiresIn: response.expires_in || 3600,
-      picture: userInfo.picture || '',
-      username: userInfo.preferred_username || '',
+      id: '',
+      name: '',
+      username: '',
     };
   }
 

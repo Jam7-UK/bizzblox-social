@@ -1,5 +1,6 @@
 import type {
   IntegrationSummary,
+  ChannelHealthV1,
   JsonValue,
   PostizAgentClient,
   PostizAgentClientDependencies,
@@ -14,6 +15,28 @@ import { PostizAgentError, providerRejectionMessage } from './error';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export function decodeChannelHealth(value: unknown): ChannelHealthV1 {
+  if (
+    !isRecord(value) ||
+    value.version !== 1 ||
+    !Number.isSafeInteger(value.credentialGeneration) ||
+    Number(value.credentialGeneration) < 0 ||
+    !Number.isSafeInteger(value.revision) ||
+    Number(value.revision) < 0 ||
+    !['ready', 'recovering', 'operator_required', 'consent_required'].includes(
+      String(value.state)
+    )
+  ) {
+    throw new Error('Postiz returned invalid channel health.');
+  }
+  return Object.freeze({
+    version: 1,
+    credentialGeneration: value.credentialGeneration as number,
+    revision: value.revision as number,
+    state: value.state as ChannelHealthV1['state'],
+  });
 }
 
 function integrationSummary(value: unknown): IntegrationSummary {
@@ -34,6 +57,9 @@ function integrationSummary(value: unknown): IntegrationSummary {
     name: value.name,
     picture: picture as string | null,
     disabled: value.disabled,
+    ...(value.health === undefined
+      ? {}
+      : { health: decodeChannelHealth(value.health) }),
   });
 }
 

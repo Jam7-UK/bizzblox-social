@@ -106,7 +106,10 @@ export class IntegrationTriggerTool implements AgentToolInterface {
             const load = await integrationProvider[inputData.methodName](
               getIntegration.token,
               inputData.dataSchema.reduce(
-                (all: Record<string, string>, current: { key: string; value: string }) => ({
+                (
+                  all: Record<string, string>,
+                  current: { key: string; value: string }
+                ) => ({
                   ...all,
                   [current.key]: current.value,
                 }),
@@ -125,12 +128,8 @@ export class IntegrationTriggerTool implements AgentToolInterface {
               );
 
               if (!data) {
-                await this._integrationService.disconnectChannel(
-                  organizationId,
-                  getIntegration
-                );
                 throw new Error(
-                  'The channel was disconnected because its token expired, the user needs to reconnect it in Postiz'
+                  'The channel is temporarily unavailable while credential recovery is checked.'
                 );
               }
 
@@ -149,7 +148,7 @@ export class IntegrationTriggerTool implements AgentToolInterface {
 
             if (err instanceof RefreshToken) {
               throw new Error(
-                'The provider rejected the credentials even after refreshing the token, the user needs to reconnect the channel in Postiz'
+                'The channel is temporarily unavailable. Support can check its recovery status.'
               );
             }
 

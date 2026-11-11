@@ -1,4 +1,8 @@
 import {
+  googleRefreshFingerprint,
+  refreshGoogleCredentials,
+} from './google.oauth.refresh';
+import {
   AnalyticsData,
   AuthTokenDetails,
   PostDetails,
@@ -139,27 +143,30 @@ export class GmbProvider extends SocialAbstract implements SocialProvider {
     return undefined;
   }
 
-  async refreshToken(refresh_token: string): Promise<AuthTokenDetails> {
-    const { client, oauth2 } = clientAndGmb();
-    client.setCredentials({ refresh_token });
-    const { credentials } = await client.refreshAccessToken();
-    const user = oauth2(client);
-    const expiryDate = new Date(credentials.expiry_date!);
-    const unixTimestamp =
-      Math.floor(expiryDate.getTime() / 1000) -
-      Math.floor(new Date().getTime() / 1000);
+  refreshReplaySafe = true;
 
-    const { data } = await user.userinfo.get();
+  refreshConfigurationFingerprint() {
+    return googleRefreshFingerprint(
+      process.env.GOOGLE_GMB_CLIENT_ID || process.env.YOUTUBE_CLIENT_ID || '',
+      process.env.GOOGLE_GMB_CLIENT_SECRET ||
+        process.env.YOUTUBE_CLIENT_SECRET ||
+        '',
+      this.scopes
+    );
+  }
 
-    return {
-      accessToken: credentials.access_token!,
-      expiresIn: unixTimestamp!,
-      refreshToken: credentials.refresh_token || refresh_token,
-      id: data.id!,
-      name: data.name!,
-      picture: data?.picture || '',
-      username: '',
-    };
+  async refreshToken(
+    refreshToken: string,
+    context?: { configurationVerified: boolean }
+  ): Promise<AuthTokenDetails> {
+    return refreshGoogleCredentials(
+      process.env.GOOGLE_GMB_CLIENT_ID || process.env.YOUTUBE_CLIENT_ID || '',
+      process.env.GOOGLE_GMB_CLIENT_SECRET ||
+        process.env.YOUTUBE_CLIENT_SECRET ||
+        '',
+      refreshToken,
+      context?.configurationVerified === true
+    );
   }
 
   async generateAuthUrl(_clientInformation?: unknown, callbackUrl?: string) {
@@ -327,10 +334,7 @@ export class GmbProvider extends SocialAbstract implements SocialProvider {
         } while (locationsPageToken);
       } catch (error) {
         // Continue with other accounts if one fails
-        console.error(
-          `Failed to fetch locations for account ${accountName}:`,
-          error
-        );
+        console.error('Google business location read failed.');
       }
     }
 

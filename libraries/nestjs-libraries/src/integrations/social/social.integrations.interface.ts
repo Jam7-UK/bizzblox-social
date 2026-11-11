@@ -15,7 +15,13 @@ export interface IAuthenticator {
     },
     clientInformation?: ClientInformation
   ): Promise<AuthTokenDetails | string>;
-  refreshToken(refreshToken: string): Promise<AuthTokenDetails>;
+  refreshToken(
+    refreshToken: string,
+    context?: { configurationVerified: boolean }
+  ): Promise<AuthTokenDetails>;
+  /** Only documented stable refresh credentials may replay an unknown exchange. */
+  refreshReplaySafe?: boolean;
+  refreshConfigurationFingerprint?(): string;
   reConnect?(
     id: string,
     requiredId: string,
@@ -238,4 +244,18 @@ export interface SocialProvider
     state: string;
     code: string;
   };
+}
+
+/** Sanitized evidence created only at the provider's token-exchange boundary. */
+export class ProviderRefreshFailure extends Error {
+  constructor(
+    public readonly kind:
+      | 'configuration'
+      | 'consent'
+      | 'retry'
+      | 'identity'
+      | 'unknown'
+  ) {
+    super('Provider credential refresh did not complete.');
+  }
 }

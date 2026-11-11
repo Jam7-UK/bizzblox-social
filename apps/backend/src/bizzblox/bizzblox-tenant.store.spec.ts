@@ -79,6 +79,14 @@ describe('Prisma BizzBLOX tenant store', () => {
         disabled: true,
         refreshToken: null,
         token: 'retired',
+        credentialGeneration: { increment: 1 },
+        healthRevision: { increment: 1 },
+        healthState: 'operator_required',
+        refreshClaim: null,
+        refreshLeaseUntil: null,
+        refreshPendingAccess: null,
+        refreshPendingToken: null,
+        refreshPendingExpiry: null,
       },
     });
     expect(postUpdate).toHaveBeenCalledWith({

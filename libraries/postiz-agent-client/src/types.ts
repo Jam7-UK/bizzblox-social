@@ -41,12 +41,20 @@ export interface PostizAgentTransport {
   request(request: PostizTransportRequest): Promise<PostizTransportResponse>;
 }
 
+export type ChannelHealthV1 = Readonly<{
+  version: 1;
+  credentialGeneration: number;
+  revision: number;
+  state: 'ready' | 'recovering' | 'operator_required' | 'consent_required';
+}>;
+
 export type IntegrationSummary = Readonly<{
   id: string;
   identifier: string;
   name: string;
   picture: string | null;
   disabled: boolean;
+  health?: ChannelHealthV1;
 }>;
 
 export type ProviderTool = Readonly<{

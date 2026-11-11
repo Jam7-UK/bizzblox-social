@@ -1,6 +1,9 @@
 type IntegrationCredentials = Readonly<{
   refreshToken?: string | null;
   token: string;
+  refreshPendingAccess?: string | null;
+  refreshPendingToken?: string | null;
+  credentialScope?: string | null;
 }>;
 
 export type TemporalSafeIntegration<T extends IntegrationCredentials> = Omit<
@@ -15,7 +18,14 @@ export type TemporalSafeIntegration<T extends IntegrationCredentials> = Omit<
 export function integrationForTemporalHistory<T extends IntegrationCredentials>(
   integration: T
 ): TemporalSafeIntegration<T> {
-  return { ...integration, refreshToken: null, token: '' };
+  return {
+    ...integration,
+    refreshToken: null,
+    token: '',
+    refreshPendingAccess: null,
+    refreshPendingToken: null,
+    credentialScope: null,
+  };
 }
 
 export function postForTemporalHistory<

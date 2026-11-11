@@ -39,4 +39,4 @@ jobs:
       - name: Prepare disposable schema
         run: pnpm exec prisma db push --schema libraries/nestjs-libraries/src/database/prisma/schema.prisma --skip-generate
       - name: Exercise ownership under concurrent PostgreSQL transactions
-        run: pnpm exec vitest run libraries/nestjs-libraries/src/database/prisma/integrations/integration.repository.ownership.spec.ts
+        run: pnpm exec vitest run libraries/nestjs-libraries/src/database/prisma/integrations/integration.repository.ownership.spec.ts libraries/nestjs-libraries/src/database/prisma/integrations/integration.repository.refresh.spec.ts

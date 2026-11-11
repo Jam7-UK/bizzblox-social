@@ -144,10 +144,11 @@ export class IntegrationsController {
     @Param('id') id: string,
     @Body() body: { name: string; picture: string }
   ) {
-    const integration = await this._integrationService.getIntegrationById(
-      org.id,
-      id
-    );
+    const integration =
+      await this._integrationService.getIntegrationForProviderExecution(
+        org.id,
+        id
+      );
     if (!integration) {
       throw new Error('Invalid integration');
     }
@@ -278,10 +279,11 @@ export class IntegrationsController {
     @GetOrgFromRequest() org: Organization,
     @Body() body: IntegrationFunctionDto
   ) {
-    const getIntegration = await this._integrationService.getIntegrationById(
-      org.id,
-      body.id
-    );
+    const getIntegration =
+      await this._integrationService.getIntegrationForProviderExecution(
+        org.id,
+        body.id
+      );
     if (!getIntegration) {
       throw new Error('Invalid integration');
     }
@@ -334,10 +336,11 @@ export class IntegrationsController {
     @GetOrgFromRequest() org: Organization,
     @Body() body: IntegrationFunctionDto
   ): Promise<any> {
-    const getIntegration = await this._integrationService.getIntegrationById(
-      org.id,
-      body.id
-    );
+    const getIntegration =
+      await this._integrationService.getIntegrationForProviderExecution(
+        org.id,
+        body.id
+      );
     if (!getIntegration) {
       throw new Error('Invalid integration');
     }
@@ -362,8 +365,7 @@ export class IntegrationsController {
 
         return load;
       } catch (err) {
-        // The platform will keep rejecting this channel until the user
-        // re-connects it: mark it as needing a refresh instead of retrying.
+        // Execution rejection is an operator hold, not evidence of revoked consent.
         if (err instanceof Disconnect) {
           await this._integrationService.disconnectChannel(
             org.id,

@@ -27,7 +27,7 @@ describe('managed integration token persistence', () => {
       unused,
       unused,
       tokens,
-      unused
+      { model: { $transaction: async (fn) => fn(integrationModel) } } as never
     );
     vi.spyOn(repository, 'reserveProviderAccount').mockResolvedValue(undefined);
 
@@ -113,7 +113,7 @@ describe('managed integration token persistence', () => {
       unused,
       unused,
       tokens,
-      unused
+      { model: { $transaction: async (fn) => fn(integrationModel) } } as never
     );
     vi.spyOn(repository, 'reserveProviderAccount').mockResolvedValue(undefined);
 
@@ -136,6 +136,7 @@ describe('managed integration token persistence', () => {
         organizationId: 'organization_123',
         rootInternalId: 'root-account',
         providerIdentifier: 'linkedin',
+        deletedAt: null,
       },
       select: { id: true, organizationId: true },
     });
@@ -194,7 +195,7 @@ describe('managed integration token persistence', () => {
       unused,
       unused,
       tokens,
-      unused
+      { model: { $transaction: async (fn) => fn(integrationModel) } } as never
     );
     vi.spyOn(repository, 'reserveProviderAccount').mockResolvedValue(undefined);
 
@@ -213,10 +214,10 @@ describe('managed integration token persistence', () => {
 
     expect(integrationModel.integration.update).toHaveBeenCalledWith({
       where: { id: 'integration_winner' },
-      data: {
+      data: expect.objectContaining({
         token: 'sealed:integration_winner:access',
         refreshToken: 'sealed:integration_winner:refresh',
-      },
+      }),
     });
   });
 
@@ -250,7 +251,7 @@ describe('managed integration token persistence', () => {
       unused,
       unused,
       tokens,
-      unused
+      { model: { $transaction: async (fn) => fn(integrationModel) } } as never
     );
     vi.spyOn(repository, 'reserveProviderAccount').mockResolvedValue(undefined);
 
@@ -262,7 +263,7 @@ describe('managed integration token persistence', () => {
     });
 
     expect(integrationModel.integration.update).toHaveBeenCalledWith({
-      where: { id: 'integration_current' },
+      where: { id: 'integration_current', credentialGeneration: undefined },
       data: expect.objectContaining({
         token: 'sealed:integration_current:access',
         refreshToken: 'sealed:integration_current:refresh',
@@ -305,6 +306,10 @@ describe('managed integration token persistence', () => {
       token: 'sealed-access',
     };
 
+    vi.spyOn(repository, 'getIntegrationById').mockResolvedValue({
+      ...stored,
+      healthState: 'ready',
+    } as never);
     const opened = await repository.openForProviderExecution(stored as never);
 
     expect(opened).toMatchObject({

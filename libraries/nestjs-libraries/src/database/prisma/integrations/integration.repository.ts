@@ -4,7 +4,6 @@ import {
 } from '@gitroom/nestjs-libraries/database/prisma/prisma.service';
 import { Inject, Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'crypto';
-import dayjs from 'dayjs';
 import { Integration, Prisma } from '@prisma/client';
 import { makeId } from '@gitroom/nestjs-libraries/services/make.is';
 import { IntegrationTimeDto } from '@gitroom/nestjs-libraries/dtos/integrations/integration.time.dto';
@@ -104,6 +103,38 @@ export class IntegrationRepository {
   async openForProviderExecution<T extends Integration>(
     integration: T
   ): Promise<T> {
+    const current = await this.getIntegrationById(
+      integration.organizationId,
+      integration.id
+    );
+    if (
+      !current ||
+      current.disabled ||
+      current.deletedAt ||
+      this.health(current).state !== 'ready' ||
+      current.credentialGeneration !== integration.credentialGeneration
+    ) {
+      throw new Error('Social channel credentials are unavailable.');
+    }
+    const opened = await this.openForRefresh({ ...integration, ...current });
+    const latest = await this.getIntegrationById(
+      current.organizationId,
+      current.id
+    );
+    if (
+      !latest ||
+      latest.disabled ||
+      latest.deletedAt ||
+      this.health(latest).state !== 'ready' ||
+      latest.credentialGeneration !== current.credentialGeneration ||
+      latest.healthRevision !== current.healthRevision
+    ) {
+      throw new Error('Social channel credentials are unavailable.');
+    }
+    return opened;
+  }
+
+  async openForRefresh<T extends Integration>(integration: T): Promise<T> {
     if (integration.type === 'social' && !integration.inBetweenSteps) {
       await this.reserveProviderAccount(
         integration.organizationId,
@@ -130,6 +161,437 @@ export class IntegrationRepository {
         )
       : integration.refreshToken;
     return { ...integration, refreshToken, token };
+  }
+
+  private async credentialTransaction<T>(
+    operation: (tx: Prisma.TransactionClient) => Promise<T>
+  ): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this._transaction.model.$transaction(operation, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          timeout: 30_000,
+        });
+      } catch (error) {
+        if (
+          attempt < 4 &&
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2034'
+        )
+          continue;
+        throw error;
+      }
+    }
+  }
+
+  /** Credentials and recovery metadata have one writer; callers never persist raw failures. */
+  private freshCredentials(credentialScope: string | null = null) {
+    return {
+      credentialGeneration: { increment: 1 },
+      healthRevision: { increment: 1 },
+      credentialScope,
+      healthState: 'ready',
+      refreshReason: null,
+      refreshNeeded: false,
+      refreshClaim: null,
+      refreshLeaseUntil: null,
+      refreshPhase: null,
+      refreshReplaySafe: false,
+      refreshNextAt: null,
+      refreshAttempts: 0,
+      refreshPendingAccess: null,
+      refreshPendingToken: null,
+      refreshPendingExpiry: null,
+    };
+  }
+
+  health(integration: Integration) {
+    const state =
+      integration.refreshNeeded && integration.healthState === 'ready'
+        ? 'operator_required'
+        : integration.healthState;
+    return {
+      version: 1 as const,
+      credentialGeneration: integration.credentialGeneration,
+      revision: integration.healthRevision,
+      state: ([
+        'ready',
+        'recovering',
+        'operator_required',
+        'consent_required',
+      ].includes(state)
+        ? state
+        : 'operator_required') as
+        | 'ready'
+        | 'recovering'
+        | 'operator_required'
+        | 'consent_required',
+    };
+  }
+
+  private refreshFence(row: Integration) {
+    return {
+      id: row.id,
+      organizationId: row.organizationId,
+      providerIdentifier: row.providerIdentifier,
+      internalId: row.internalId,
+      rootInternalId: row.rootInternalId,
+      credentialGeneration: row.credentialGeneration,
+      healthRevision: row.healthRevision,
+      refreshClaim: row.refreshClaim,
+      disabled: row.disabled,
+      deletedAt: row.deletedAt,
+      inBetweenSteps: row.inBetweenSteps,
+    };
+  }
+
+  async claimRefresh(
+    org: string,
+    id: string,
+    oneTimeToken: boolean,
+    force: boolean
+  ) {
+    const now = new Date();
+    return this._transaction.model.$transaction(
+      async (tx) => {
+        const current = await tx.integration.findFirst({
+          where: { id, organizationId: org },
+        });
+        if (
+          !current ||
+          current.disabled ||
+          current.deletedAt ||
+          current.inBetweenSteps
+        )
+          return null;
+        if (
+          this.health(current).state === 'operator_required' ||
+          this.health(current).state === 'consent_required'
+        )
+          return null;
+        if (current.refreshLeaseUntil && current.refreshLeaseUntil > now)
+          return null;
+        if (current.refreshClaim) {
+          // A lost exchange has unknown consumption. Only the persisted provider replay proof allows retry.
+          const safe =
+            current.refreshPhase !== 'exchanging' || current.refreshReplaySafe;
+          await tx.integration.updateMany({
+            where: { organizationId: org, refreshClaim: current.refreshClaim },
+            data: {
+              healthState: safe ? 'recovering' : 'operator_required',
+              refreshReason: safe ? 'lease_expired' : 'exchange_uncertain',
+              refreshClaim: null,
+              refreshLeaseUntil: null,
+              refreshNextAt: safe ? new Date(now.getTime() + 60_000) : null,
+              healthRevision: { increment: 1 },
+            },
+          });
+          return null;
+        }
+        if (current.refreshNextAt && current.refreshNextAt > now) return null;
+        if (
+          !force &&
+          !current.refreshPendingAccess &&
+          current.healthState === 'ready' &&
+          (!current.tokenExpiration ||
+            current.tokenExpiration.getTime() > now.getTime() + 300_000)
+        )
+          return null;
+        const rows =
+          oneTimeToken && !current.refreshPendingAccess
+            ? await tx.integration.findMany({
+                where: {
+                  organizationId: org,
+                  providerIdentifier: current.providerIdentifier,
+                  rootInternalId: current.rootInternalId ?? current.internalId,
+                  deletedAt: null,
+                  inBetweenSteps: false,
+                },
+                orderBy: { id: 'asc' },
+              })
+            : [current];
+        if (!rows.some((row) => row.id === current.id)) rows.push(current);
+        if (
+          rows.some(
+            (row) =>
+              row.refreshClaim ||
+              (row.refreshPendingAccess &&
+                row.id !== current.id &&
+                !row.disabled) ||
+              ['operator_required', 'consent_required'].includes(
+                this.health(row).state
+              )
+          )
+        )
+          return null;
+        const claim = randomUUID();
+        const claimed: Integration[] = [];
+        for (const row of rows) {
+          const result = await tx.integration.updateMany({
+            where: this.refreshFence(row),
+            data: {
+              refreshClaim: claim,
+              refreshLeaseUntil: new Date(now.getTime() + 600_000),
+              refreshPhase: row.refreshPendingAccess ? 'resolving' : 'prepared',
+              healthState: 'recovering',
+              healthRevision: { increment: 1 },
+              refreshAttempts: Math.min(row.refreshAttempts + 1, 16),
+            },
+          });
+          if (result.count !== 1)
+            throw new Error('Credential refresh claim changed.');
+          claimed.push({
+            ...row,
+            refreshClaim: claim,
+            healthRevision: row.healthRevision + 1,
+          });
+        }
+        return {
+          current: claimed.find((row) => row.id === id)!,
+          rows: claimed,
+        };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+    );
+  }
+
+  async beginRefreshExchange(
+    claim: { rows: Integration[] },
+    replaySafe: boolean
+  ) {
+    return this._transaction.model.$transaction(async (tx) => {
+      for (const row of claim.rows) {
+        const result = await tx.integration.updateMany({
+          where: {
+            ...this.refreshFence(row),
+            refreshLeaseUntil: { gt: new Date() },
+          },
+          data: { refreshPhase: 'exchanging', refreshReplaySafe: replaySafe },
+        });
+        if (result.count !== 1)
+          throw new Error('Credential refresh claim changed.');
+      }
+    });
+  }
+
+  async stageRefreshCredentials(
+    claim: { rows: Integration[] },
+    credentials: {
+      accessToken: string;
+      refreshToken: string;
+      expiresIn: number;
+    }
+  ) {
+    const pending = await Promise.all(
+      claim.rows.map(async (row) => ({
+        row,
+        access: await this.sealProviderToken(
+          row.organizationId,
+          row.id,
+          'access',
+          credentials.accessToken
+        ),
+        refresh: await this.sealProviderToken(
+          row.organizationId,
+          row.id,
+          'refresh',
+          credentials.refreshToken
+        ),
+      }))
+    );
+    return this._transaction.model.$transaction(async (tx) => {
+      for (const { row, access, refresh } of pending) {
+        const result = await tx.integration.updateMany({
+          where: {
+            ...this.refreshFence(row),
+            refreshLeaseUntil: { gt: new Date() },
+            refreshPhase: 'exchanging',
+          },
+          data: {
+            refreshPendingAccess: access,
+            refreshPendingToken: refresh,
+            refreshPendingExpiry: new Date(
+              Date.now() + credentials.expiresIn * 1000
+            ),
+            refreshPhase: 'resolving',
+            refreshClaim: null,
+            refreshLeaseUntil: null,
+            refreshNextAt: new Date(),
+            refreshReason: null,
+            healthRevision: { increment: 1 },
+          },
+        });
+        if (result.count !== 1)
+          throw new Error('Credential refresh result is stale.');
+      }
+    });
+  }
+
+  async openPendingRefresh(row: Integration) {
+    return this._providerTokens.open(
+      {
+        integrationId: row.id,
+        organizationId: row.organizationId,
+        purpose: 'access',
+      },
+      row.refreshPendingAccess!
+    );
+  }
+
+  async renewExpiredPendingRefresh(row: Integration) {
+    return this._integration.model.integration.updateMany({
+      where: {
+        ...this.refreshFence(row),
+        refreshLeaseUntil: { gt: new Date() },
+        refreshPhase: 'resolving',
+      },
+      data: {
+        ...this.freshCredentials(row.credentialScope),
+        refreshToken: row.refreshPendingToken,
+        healthState: 'recovering',
+        refreshNextAt: new Date(Date.now() + 60_000),
+      },
+    });
+  }
+
+  async finishRefresh(row: Integration, accessToken: string) {
+    const token = await this.sealProviderToken(
+      row.organizationId,
+      row.id,
+      'access',
+      accessToken
+    );
+    const updated = await this._integration.model.integration.updateMany({
+      where: {
+        ...this.refreshFence(row),
+        disabled: false,
+        deletedAt: null,
+        inBetweenSteps: false,
+        refreshLeaseUntil: { gt: new Date() },
+        refreshPhase: 'resolving',
+      },
+      data: {
+        ...this.freshCredentials(row.credentialScope),
+        token,
+        refreshToken: row.refreshPendingToken,
+        tokenExpiration: row.refreshPendingExpiry,
+      },
+    });
+    return updated.count === 1;
+  }
+
+  async failRefresh(
+    claim: { rows: Integration[] },
+    state: 'recovering' | 'operator_required' | 'consent_required',
+    reason: string
+  ) {
+    return this._transaction.model.$transaction(async (tx) => {
+      for (const row of claim.rows) {
+        await tx.integration.updateMany({
+          where: {
+            ...this.refreshFence(row),
+            refreshLeaseUntil: { gt: new Date() },
+          },
+          data: {
+            healthState: state,
+            refreshReason: reason,
+            refreshClaim: null,
+            refreshLeaseUntil: null,
+            refreshNextAt:
+              state === 'recovering'
+                ? new Date(
+                    Date.now() +
+                      Math.min(
+                        21_600_000,
+                        60_000 * 2 ** Math.min(row.refreshAttempts, 9)
+                      )
+                  )
+                : null,
+            healthRevision: { increment: 1 },
+          },
+        });
+      }
+    });
+  }
+
+  async retryRefreshConfiguration(row: Integration) {
+    const updated = await this._integration.model.integration.updateMany({
+      where: {
+        ...this.refreshFence(row),
+        healthState: 'operator_required',
+        refreshReason: 'configuration',
+        disabled: false,
+        deletedAt: null,
+      },
+      data: {
+        healthState: 'recovering',
+        refreshReason: null,
+        refreshNextAt: new Date(),
+        healthRevision: { increment: 1 },
+      },
+    });
+    return updated.count === 1;
+  }
+
+  /** Bounded cursor scan: a held/failed row can never starve later integrations. */
+  refreshCandidates(after?: string, held = false) {
+    return this._integration.model.integration.findMany({
+      where: {
+        type: 'social',
+        deletedAt: null,
+        ...(after ? { id: { gt: after } } : {}),
+        ...(held
+          ? {
+              OR: [
+                { healthState: 'operator_required' },
+                { healthState: 'consent_required' },
+                { refreshNeeded: true },
+              ],
+            }
+          : { disabled: false, inBetweenSteps: false }),
+      },
+      orderBy: { id: 'asc' },
+      take: 100,
+      select: {
+        id: true,
+        organizationId: true,
+        credentialGeneration: true,
+        healthRevision: true,
+        healthState: true,
+        refreshReason: true,
+        refreshNeeded: true,
+      },
+    });
+  }
+
+  private async changeLifecycle(
+    org: string,
+    id: string,
+    data: Prisma.IntegrationUpdateManyMutationInput
+  ) {
+    return this.credentialTransaction(async (tx) => {
+      const row = await tx.integration.findFirst({
+        where: { id, organizationId: org },
+      });
+      if (!row) return;
+      const changed = await tx.integration.updateMany({
+        where: this.refreshFence(row),
+        data: {
+          ...data,
+          credentialGeneration: { increment: 1 },
+          healthRevision: { increment: 1 },
+          refreshClaim: null,
+          refreshLeaseUntil: null,
+          ...(row.refreshPhase === 'exchanging'
+            ? {
+                healthState: 'operator_required',
+                refreshReason: 'exchange_uncertain',
+              }
+            : {}),
+        },
+      });
+      if (changed.count !== 1) throw new Error('Channel lifecycle changed.');
+    });
   }
 
   getMentions(platform: string, q: string) {
@@ -267,6 +729,12 @@ export class IntegrationRepository {
     if (!current || !params.organizationId || !params.internalId) {
       throw new Error('Social account ownership identity is incomplete.');
     }
+    if (
+      params.credentialGeneration !== undefined &&
+      params.credentialGeneration !== current.credentialGeneration
+    ) {
+      throw new Error('Channel credentials changed during account selection.');
+    }
     const providerIdentifier =
       params.providerIdentifier ?? current.providerIdentifier;
     if (current.type === 'social' && !current.inBetweenSteps) {
@@ -308,6 +776,22 @@ export class IntegrationRepository {
 
     const targetId = existing?.id ?? id;
     const securedParams = { ...params };
+    if (params.refreshToken === undefined && current.refreshToken) {
+      const plaintext = await this._providerTokens.open(
+        {
+          integrationId: current.id,
+          organizationId: current.organizationId,
+          purpose: 'refresh',
+        },
+        current.refreshToken
+      );
+      securedParams.refreshToken = await this.sealProviderToken(
+        current.organizationId,
+        targetId,
+        'refresh',
+        plaintext
+      );
+    }
     if (typeof params.token === 'string') {
       if (!params.organizationId) {
         throw new Error('Managed provider token context is incomplete.');
@@ -331,7 +815,7 @@ export class IntegrationRepository {
       );
     }
 
-    if (existing) {
+    if (existing && existing.id !== id) {
       await this._posts.model.post.updateMany({
         where: {
           integrationId: id,
@@ -346,6 +830,7 @@ export class IntegrationRepository {
           id,
         },
         data: {
+          ...this.freshCredentials(),
           internalId: `deleted_${params.internalId}_${makeId(10)}`,
           deletedAt: new Date(),
         },
@@ -355,23 +840,33 @@ export class IntegrationRepository {
     return this._integration.model.integration.update({
       where: {
         id: targetId,
+        credentialGeneration:
+          existing?.credentialGeneration ?? current.credentialGeneration,
       },
       data: {
         ...securedParams,
+        ...this.freshCredentials(params.credentialScope ?? null),
         disabled: false,
         deletedAt: null,
       },
     });
   }
 
-  disconnectChannel(org: string, id: string) {
-    return this._integration.model.integration.update({
+  disconnectChannel(org: string, id: string, credentialGeneration: number) {
+    if (!Number.isSafeInteger(credentialGeneration)) return;
+    return this._integration.model.integration.updateMany({
       where: {
         id,
         organizationId: org,
+        credentialGeneration,
+        healthState: 'ready',
+        refreshClaim: null,
+        deletedAt: null,
       },
       data: {
-        refreshNeeded: true,
+        healthState: 'operator_required',
+        refreshReason: 'execution_rejected',
+        healthRevision: { increment: 1 },
       },
     });
   }
@@ -451,6 +946,9 @@ export class IntegrationRepository {
         organizationId: org,
       },
       data: {
+        ...this.freshCredentials(),
+        healthState: 'operator_required',
+        refreshReason: 'identity_changed',
         internalId,
         providerIdentifier,
         rootInternalId,
@@ -482,12 +980,13 @@ export class IntegrationRepository {
     isBetweenSteps = false,
     refresh?: string,
     timezone?: number,
-    customInstanceDetails?: string
+    customInstanceDetails?: string,
+    credentialScope: string | null = null
   ) {
     if (type === 'social' && !isBetweenSteps)
       await this.reserveProviderAccount(org, provider, internalId);
-    const existingIntegration =
-      await this._integration.model.integration.findUnique({
+    return this.credentialTransaction(async (tx) => {
+      const existingIntegration = await tx.integration.findUnique({
         where: {
           organizationId_providerIdentifier_internalId: {
             internalId,
@@ -497,203 +996,179 @@ export class IntegrationRepository {
         },
         select: { id: true },
       });
-    const integrationId = existingIntegration?.id ?? randomUUID();
-    const sealedToken = await this.sealProviderToken(
-      org,
-      integrationId,
-      'access',
-      token
-    );
-    const sealedRefreshToken = refreshToken
-      ? await this.sealProviderToken(
-          org,
-          integrationId,
-          'refresh',
-          refreshToken
-        )
-      : '';
-    const postTimes = timezone
-      ? {
-          postingTimes: JSON.stringify([
-            { time: 560 - timezone },
-            { time: 850 - timezone },
-            { time: 1140 - timezone },
-          ]),
-        }
-      : {};
-    let upsert = await this._integration.model.integration.upsert({
-      where: {
-        organizationId_providerIdentifier_internalId: {
-          internalId,
-          providerIdentifier: provider,
-          organizationId: org,
-        },
-      },
-      create: {
-        id: integrationId,
-        type: type as any,
-        name,
-        providerIdentifier: provider,
-        token: sealedToken,
-        profile: username,
-        ...(picture ? { picture } : {}),
-        inBetweenSteps: isBetweenSteps,
-        refreshToken: sealedRefreshToken,
-        ...(expiresIn
-          ? { tokenExpiration: new Date(Date.now() + expiresIn * 1000) }
-          : {}),
-        internalId,
-        ...postTimes,
-        organizationId: org,
-        refreshNeeded: false,
-        rootInternalId: internalId,
-        ...(customInstanceDetails ? { customInstanceDetails } : {}),
-        additionalSettings: additionalSettings
-          ? JSON.stringify(additionalSettings)
-          : '[]',
-      },
-      update: {
-        ...(additionalSettings
-          ? { additionalSettings: JSON.stringify(additionalSettings) }
-          : {}),
-        ...(customInstanceDetails ? { customInstanceDetails } : {}),
-        type: type as any,
-        ...(!refresh
-          ? {
-              inBetweenSteps: isBetweenSteps,
-            }
-          : {}),
-        ...(picture ? { picture } : {}),
-        profile: username,
-        providerIdentifier: provider,
-        token: sealedToken,
-        refreshToken: sealedRefreshToken,
-        ...(expiresIn
-          ? { tokenExpiration: new Date(Date.now() + expiresIn * 1000) }
-          : {}),
-        internalId,
-        organizationId: org,
-        deletedAt: null,
-        refreshNeeded: false,
-      },
-    });
-
-    // A competing first connection may win the unique organization/account
-    // row after our initial lookup. Rebind the envelopes to the row Prisma
-    // actually returned before any caller can use them.
-    if (upsert.id !== integrationId) {
-      const reboundToken = await this.sealProviderToken(
+      const integrationId = existingIntegration?.id ?? randomUUID();
+      const sealedToken = await this.sealProviderToken(
         org,
-        upsert.id,
+        integrationId,
         'access',
         token
       );
-      const reboundRefreshToken = refreshToken
-        ? await this.sealProviderToken(org, upsert.id, 'refresh', refreshToken)
+      const sealedRefreshToken = refreshToken
+        ? await this.sealProviderToken(
+            org,
+            integrationId,
+            'refresh',
+            refreshToken
+          )
         : '';
-      upsert = await this._integration.model.integration.update({
-        where: { id: upsert.id },
-        data: {
-          token: reboundToken,
-          refreshToken: reboundRefreshToken,
-        },
-      });
-    }
-
-    if (oneTimeToken) {
-      const rootId =
-        (
-          await this._integration.model.integration.findFirst({
-            where: {
-              organizationId: org,
-              internalId: internalId,
-              providerIdentifier: provider,
-            },
-          })
-        )?.rootInternalId || internalId;
-
-      const siblings = await this._integration.model.integration.findMany({
+      const postTimes = timezone
+        ? {
+            postingTimes: JSON.stringify([
+              { time: 560 - timezone },
+              { time: 850 - timezone },
+              { time: 1140 - timezone },
+            ]),
+          }
+        : {};
+      let upsert = await tx.integration.upsert({
         where: {
-          id: { not: upsert.id },
-          organizationId: org,
-          rootInternalId: rootId,
+          organizationId_providerIdentifier_internalId: {
+            internalId,
+            providerIdentifier: provider,
+            organizationId: org,
+          },
+        },
+        create: {
+          id: integrationId,
+          credentialScope,
+          type: type as any,
+          name,
           providerIdentifier: provider,
+          token: sealedToken,
+          profile: username,
+          ...(picture ? { picture } : {}),
+          inBetweenSteps: isBetweenSteps,
+          refreshToken: sealedRefreshToken,
+          ...(expiresIn
+            ? { tokenExpiration: new Date(Date.now() + expiresIn * 1000) }
+            : {}),
+          internalId,
+          ...postTimes,
+          organizationId: org,
+          refreshNeeded: false,
+          rootInternalId: internalId,
+          ...(customInstanceDetails ? { customInstanceDetails } : {}),
+          additionalSettings: additionalSettings
+            ? JSON.stringify(additionalSettings)
+            : '[]',
         },
-        select: { id: true, organizationId: true },
+        update: {
+          ...this.freshCredentials(credentialScope),
+          ...(additionalSettings
+            ? { additionalSettings: JSON.stringify(additionalSettings) }
+            : {}),
+          ...(customInstanceDetails ? { customInstanceDetails } : {}),
+          type: type as any,
+          ...(!refresh
+            ? {
+                inBetweenSteps: isBetweenSteps,
+              }
+            : {}),
+          ...(picture ? { picture } : {}),
+          profile: username,
+          providerIdentifier: provider,
+          token: sealedToken,
+          refreshToken: sealedRefreshToken,
+          ...(expiresIn
+            ? { tokenExpiration: new Date(Date.now() + expiresIn * 1000) }
+            : {}),
+          internalId,
+          organizationId: org,
+          deletedAt: null,
+          refreshNeeded: false,
+        },
       });
-      const siblingTokens = await Promise.all(
-        siblings.map(async (sibling) => ({
-          id: sibling.id,
-          token: await this.sealProviderToken(
-            sibling.organizationId,
-            sibling.id,
-            'access',
-            token
-          ),
-          refreshToken: refreshToken
-            ? await this.sealProviderToken(
-                sibling.organizationId,
-                sibling.id,
-                'refresh',
-                refreshToken
-              )
-            : '',
-        }))
-      );
-      await Promise.all(
-        siblingTokens.map((sibling) =>
-          this._integration.model.integration.update({
-            where: { id: sibling.id },
-            data: {
-              token: sibling.token,
-              refreshToken: sibling.refreshToken,
-              refreshNeeded: false,
-              ...(expiresIn
-                ? {
-                    tokenExpiration: new Date(Date.now() + expiresIn * 1000),
-                  }
-                : {}),
-            },
-          })
-        )
-      );
-    }
 
-    return upsert;
-  }
+      // A competing first connection may win the unique organization/account
+      // row after our initial lookup. Rebind the envelopes to the row Prisma
+      // actually returned before any caller can use them.
+      if (upsert.id !== integrationId) {
+        const reboundToken = await this.sealProviderToken(
+          org,
+          upsert.id,
+          'access',
+          token
+        );
+        const reboundRefreshToken = refreshToken
+          ? await this.sealProviderToken(
+              org,
+              upsert.id,
+              'refresh',
+              refreshToken
+            )
+          : '';
+        upsert = await tx.integration.update({
+          where: { id: upsert.id },
+          data: {
+            ...this.freshCredentials(credentialScope),
+            token: reboundToken,
+            refreshToken: reboundRefreshToken,
+          },
+        });
+      }
 
-  needsToBeRefreshed() {
-    return this._integration.model.integration.findMany({
-      where: {
-        tokenExpiration: {
-          lte: dayjs().add(1, 'day').toDate(),
-        },
-        inBetweenSteps: false,
-        deletedAt: null,
-        refreshNeeded: false,
-      },
-    });
-  }
+      if (oneTimeToken) {
+        const rootId =
+          (
+            await tx.integration.findFirst({
+              where: {
+                organizationId: org,
+                internalId: internalId,
+                providerIdentifier: provider,
+              },
+            })
+          )?.rootInternalId || internalId;
 
-  async setBetweenRefreshSteps(id: string) {
-    return this._integration.model.integration.update({
-      where: {
-        id,
-      },
-      data: {
-        inBetweenSteps: true,
-      },
-    });
-  }
-  refreshNeeded(org: string, id: string) {
-    return this._integration.model.integration.update({
-      where: {
-        id,
-        organizationId: org,
-      },
-      data: {
-        refreshNeeded: true,
-      },
+        const siblings = await tx.integration.findMany({
+          where: {
+            id: { not: upsert.id },
+            organizationId: org,
+            rootInternalId: rootId,
+            deletedAt: null,
+            providerIdentifier: provider,
+          },
+          select: { id: true, organizationId: true },
+        });
+        const siblingTokens = await Promise.all(
+          siblings.map(async (sibling) => ({
+            id: sibling.id,
+            token: await this.sealProviderToken(
+              sibling.organizationId,
+              sibling.id,
+              'access',
+              token
+            ),
+            refreshToken: refreshToken
+              ? await this.sealProviderToken(
+                  sibling.organizationId,
+                  sibling.id,
+                  'refresh',
+                  refreshToken
+                )
+              : '',
+          }))
+        );
+        await Promise.all(
+          siblingTokens.map((sibling) =>
+            tx.integration.update({
+              where: { id: sibling.id },
+              data: {
+                ...this.freshCredentials(credentialScope),
+                token: sibling.token,
+                refreshToken: sibling.refreshToken,
+                refreshNeeded: false,
+                ...(expiresIn
+                  ? {
+                      tokenExpiration: new Date(Date.now() + expiresIn * 1000),
+                    }
+                  : {}),
+              },
+            })
+          )
+        );
+      }
+
+      return upsert;
     });
   }
 
@@ -831,27 +1306,11 @@ export class IntegrationRepository {
   }
 
   async disableChannel(org: string, id: string) {
-    await this._integration.model.integration.update({
-      where: {
-        id,
-        organizationId: org,
-      },
-      data: {
-        disabled: true,
-      },
-    });
+    return this.changeLifecycle(org, id, { disabled: true });
   }
 
   async enableChannel(org: string, id: string) {
-    await this._integration.model.integration.update({
-      where: {
-        id,
-        organizationId: org,
-      },
-      data: {
-        disabled: false,
-      },
-    });
+    return this.changeLifecycle(org, id, { disabled: false });
   }
 
   getPostsForChannel(org: string, id: string) {
@@ -866,15 +1325,7 @@ export class IntegrationRepository {
   }
 
   deleteChannel(org: string, id: string) {
-    return this._integration.model.integration.update({
-      where: {
-        id,
-        organizationId: org,
-      },
-      data: {
-        deletedAt: new Date(),
-      },
-    });
+    return this.changeLifecycle(org, id, { deletedAt: new Date() });
   }
 
   async deleteIntegrationsForAccount(org: string) {
@@ -906,6 +1357,7 @@ export class IntegrationRepository {
           id: integration.id,
         },
         data: {
+          ...this.freshCredentials(),
           name: hash(integration.name),
           internalId: hash(integration.internalId),
           rootInternalId: integration.rootInternalId
@@ -941,6 +1393,7 @@ export class IntegrationRepository {
         },
       },
       data: {
+        ...this.freshCredentials(),
         internalId: makeId(10),
       },
     });
@@ -960,14 +1413,7 @@ export class IntegrationRepository {
     });
 
     for (const channel of getChannels) {
-      await this._integration.model.integration.update({
-        where: {
-          id: channel.id,
-        },
-        data: {
-          disabled: true,
-        },
-      });
+      await this.changeLifecycle(org, channel.id, { disabled: true });
     }
   }
 

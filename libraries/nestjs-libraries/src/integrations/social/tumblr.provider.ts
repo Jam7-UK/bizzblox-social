@@ -249,18 +249,13 @@ export class TumblrProvider extends SocialAbstract implements SocialProvider {
       })
     );
 
-    const userInfo = await this.getUserInfo(token.access_token);
-    const user = userInfo.response?.user;
-    const primaryBlog = this.getPrimaryBlog(user?.blogs || []);
-
     return {
-      id: user?.name || primaryBlog?.name || '',
-      name: user?.name || primaryBlog?.title || primaryBlog?.name || 'Tumblr',
       accessToken: token.access_token,
       refreshToken: token.refresh_token || refreshToken,
       expiresIn: token.expires_in,
-      picture: primaryBlog ? this.getAvatarUrl(primaryBlog.name) : '',
-      username: user?.name || '',
+      id: '',
+      name: '',
+      username: '',
     };
   }
 
@@ -470,7 +465,7 @@ export class TumblrProvider extends SocialAbstract implements SocialProvider {
 
   private async requestToken(body: URLSearchParams) {
     return (await (
-      await this.fetch(`${TUMBLR_API_URL}/oauth2/token`, {
+      await fetch(`${TUMBLR_API_URL}/oauth2/token`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',

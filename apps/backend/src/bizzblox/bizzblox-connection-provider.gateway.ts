@@ -307,7 +307,13 @@ export class PostizBizzbloxConnectionProviderGateway
       auth,
       input.reconnectIntegrationId
     );
-    return await this.persist(input.organizationId, provider, auth);
+    return await this.persist(
+      input.organizationId,
+      provider,
+      auth,
+      undefined,
+      !!input.reconnectIntegrationId
+    );
   }
 
   async completeCustomFields(
@@ -356,7 +362,8 @@ export class PostizBizzbloxConnectionProviderGateway
       input.organizationId,
       provider,
       auth,
-      this.fieldSealer.seal(fields)
+      this.fieldSealer.seal(fields),
+      !!input.reconnectIntegrationId
     );
   }
 
@@ -382,7 +389,13 @@ export class PostizBizzbloxConnectionProviderGateway
       }),
       input.reconnectIntegrationId
     );
-    return await this.persist(input.organizationId, provider, auth);
+    return await this.persist(
+      input.organizationId,
+      provider,
+      auth,
+      undefined,
+      !!input.reconnectIntegrationId
+    );
   }
 
   async selectAccount(
@@ -447,9 +460,14 @@ export class PostizBizzbloxConnectionProviderGateway
     );
     if (!existing) throw new Error('Social channel was not found.');
     if (provider.reConnect) {
-      auth = validAuth(
-        await provider.reConnect(auth.id, existing.internalId, auth.accessToken)
-      );
+      auth = validAuth({
+        ...auth,
+        ...(await provider.reConnect(
+          auth.id,
+          existing.internalId,
+          auth.accessToken
+        )),
+      });
     }
     if (String(auth.id) !== String(existing.internalId)) {
       await this.integrations.migrateIntegration(
@@ -466,7 +484,8 @@ export class PostizBizzbloxConnectionProviderGateway
     organizationId: string,
     provider: SelectableProvider,
     auth: AuthTokenDetails,
-    customInstanceDetails?: string
+    customInstanceDetails?: string,
+    reconnect = false
   ): Promise<BizzbloxProviderConnectionOutcome> {
     const internalId = String(auth.id);
     const name =
@@ -486,7 +505,7 @@ export class PostizBizzbloxConnectionProviderGateway
       auth.refreshToken,
       auth.expiresIn,
       auth.username,
-      provider.isBetweenSteps,
+      reconnect ? false : provider.isBetweenSteps,
       undefined,
       undefined,
       customInstanceDetails
@@ -495,7 +514,7 @@ export class PostizBizzbloxConnectionProviderGateway
       .startRefreshWorkflow(organizationId, integration.id, provider)
       .catch(() => undefined);
 
-    if (!provider.isBetweenSteps) {
+    if (reconnect || !provider.isBetweenSteps) {
       return { integrationId: integration.id, selections: [] };
     }
     const rawSelections = provider.pages

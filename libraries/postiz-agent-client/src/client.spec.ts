@@ -443,4 +443,38 @@ describe('Postiz Agent client', () => {
     expect(consoleError).not.toHaveBeenCalled();
     consoleError.mockRestore();
   });
+  it.each([
+    null,
+    { version: 2 },
+    { version: 1, credentialGeneration: -1, revision: 0, state: 'ready' },
+    { version: 1, credentialGeneration: 0, revision: 1.5, state: 'ready' },
+    {
+      version: 1,
+      credentialGeneration: 0,
+      revision: Number.MAX_SAFE_INTEGER + 1,
+      state: 'ready',
+    },
+    { version: 1, credentialGeneration: 0, revision: 0, state: 'unknown' },
+  ])('rejects malformed advertised channel health', async (health) => {
+    const client = createPostizAgentClient({
+      transport: {
+        request: async () => ({
+          status: 200,
+          body: [
+            {
+              id: 'id',
+              identifier: 'provider',
+              name: 'Channel',
+              picture: null,
+              disabled: false,
+              health,
+            },
+          ],
+        }),
+      },
+      credential: async () => ({ apiKey: 'key', apiUrl: 'https://local.test' }),
+      clock: () => new Date(),
+    });
+    await expect(client.listIntegrations()).rejects.toThrow();
+  });
 });

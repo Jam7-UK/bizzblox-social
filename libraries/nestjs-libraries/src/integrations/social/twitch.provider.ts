@@ -29,7 +29,7 @@ export class TwitchProvider extends SocialAbstract implements SocialProvider {
   }
 
   async refreshToken(refreshToken: string): Promise<AuthTokenDetails> {
-    const response = await this.fetch('https://id.twitch.tv/oauth2/token', {
+    const response = await fetch('https://id.twitch.tv/oauth2/token', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -44,17 +44,13 @@ export class TwitchProvider extends SocialAbstract implements SocialProvider {
 
     const { access_token, refresh_token, expires_in } = await response.json();
 
-    // Get user info
-    const userInfo = await this.getUserInfo(access_token);
-
     return {
+      accessToken: access_token,
       refreshToken: refresh_token,
       expiresIn: expires_in,
-      accessToken: access_token,
-      id: userInfo.id,
-      name: userInfo.name,
-      picture: userInfo.picture || '',
-      username: userInfo.username,
+      id: '',
+      name: '',
+      username: '',
     };
   }
 

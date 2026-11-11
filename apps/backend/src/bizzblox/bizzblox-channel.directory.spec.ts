@@ -22,7 +22,13 @@ describe('BizzBLOX exact-tenant channel directory', () => {
     const retire = vi.fn().mockResolvedValue({ count: 0 });
     const database = {
       $transaction: async (operation) =>
-        await operation({ bizzbloxChannel: { upsert, updateMany: retire } }),
+        await operation({
+          bizzbloxChannel: {
+            findUnique: async () => null,
+            upsert,
+            updateMany: retire,
+          },
+        }),
       bizzbloxChannel: {
         findUnique: vi.fn(),
         updateMany: vi.fn(),
@@ -153,4 +159,55 @@ describe('BizzBLOX exact-tenant channel directory', () => {
       data: { status: 'disconnected' },
     });
   });
+  it.each([
+    undefined,
+    {
+      version: 1 as const,
+      credentialGeneration: 1,
+      revision: 4,
+      state: 'ready' as const,
+    },
+  ])(
+    'retains a newer health hold when an older or legacy inventory arrives',
+    async (health) => {
+      const previous = {
+        ...row(),
+        status: 'disconnected',
+        health: {
+          version: 1 as const,
+          credentialGeneration: 2,
+          revision: 5,
+          state: 'operator_required' as const,
+        },
+      };
+      const directory = new PrismaBizzbloxChannelDirectory({
+        $transaction: async (fn) =>
+          fn({
+            bizzbloxChannel: {
+              findUnique: async () => previous,
+              upsert: async ({ update }) => ({ ...previous, ...update }),
+              updateMany: async () => ({ count: 0 }),
+            },
+          }),
+        bizzbloxChannel: {
+          findUnique: async () => previous,
+          updateMany: async () => ({ count: 0 }),
+        },
+      });
+      const result = await directory.synchronize(previous.organizationId, 7, [
+        {
+          channelHandle: previous.externalChannelHandle,
+          integrationId: previous.integrationId,
+          connectorRevision: 7,
+          contractDigest: previous.contractDigest,
+          status: 'active',
+          health,
+        },
+      ]);
+      expect(result[0]).toMatchObject({
+        status: 'disconnected',
+        health: previous.health,
+      });
+    }
+  );
 });

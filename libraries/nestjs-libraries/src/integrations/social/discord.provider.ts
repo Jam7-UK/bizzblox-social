@@ -26,7 +26,7 @@ export class DiscordProvider extends SocialAbstract implements SocialProvider {
 
   async refreshToken(refreshToken: string): Promise<AuthTokenDetails> {
     const { access_token, expires_in, refresh_token } = await (
-      await this.fetch('https://discord.com/api/oauth2/token', {
+      await fetch('https://discord.com/api/oauth2/token', {
         method: 'POST',
         body: new URLSearchParams({
           refresh_token: refreshToken,
@@ -43,21 +43,12 @@ export class DiscordProvider extends SocialAbstract implements SocialProvider {
       })
     ).json();
 
-    const { application } = await (
-      await this.fetch('https://discord.com/api/oauth2/@me', {
-        headers: {
-          Authorization: `Bearer ${access_token}`,
-        },
-      })
-    ).json();
-
     return {
+      accessToken: access_token,
       refreshToken: refresh_token,
       expiresIn: expires_in,
-      accessToken: access_token,
       id: '',
-      name: application.name,
-      picture: '',
+      name: '',
       username: '',
     };
   }

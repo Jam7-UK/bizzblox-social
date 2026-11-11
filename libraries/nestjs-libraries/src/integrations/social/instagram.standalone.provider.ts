@@ -81,25 +81,13 @@ export class InstagramStandaloneProvider
       )
     ).json();
 
-    const {
-      user_id,
-      name,
-      username,
-      profile_picture_url = '',
-    } = await (
-      await fetch(
-        `https://graph.instagram.com/${META_GRAPH_API_VERSION}/me?fields=user_id,username,name,profile_picture_url&access_token=${access_token}`
-      )
-    ).json();
-
     return {
-      id: user_id,
-      name,
       accessToken: access_token,
       refreshToken: access_token,
-      expiresIn: dayjs().add(58, 'days').unix() - dayjs().unix(),
-      picture: profile_picture_url || '',
-      username,
+      expiresIn: 58 * 86400,
+      id: '',
+      name: '',
+      username: '',
     };
   }
 
