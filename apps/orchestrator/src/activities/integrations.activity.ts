@@ -25,7 +25,7 @@ export class IntegrationsActivity {
     return integration ? integrationForTemporalHistory(integration) : null;
   }
 
-  @ActivityMethod()
+  // PostActivity owns the registered legacy name and its provider propagation delay.
   async refreshToken(integration: Integration) {
     const refresh = await this._refreshIntegrationService.refresh(integration);
     return refresh ? refreshForTemporalHistory(refresh) : false;

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { Prisma } from '@prisma/client';
 
 import {
   PrismaBizzbloxChannelDirectory,
@@ -160,24 +161,49 @@ describe('BizzBLOX exact-tenant channel directory', () => {
     });
   });
   it.each([
-    undefined,
     {
-      version: 1 as const,
-      credentialGeneration: 1,
-      revision: 4,
-      state: 'ready' as const,
+      health: undefined,
+      incomingStatus: 'active',
+      previousStatus: 'disconnected',
+      previousState: 'operator_required',
+      expectedStatus: 'disconnected',
     },
-  ])(
-    'retains a newer health hold when an older or legacy inventory arrives',
-    async (health) => {
+    {
+      health: {
+        version: 1 as const,
+        credentialGeneration: 1,
+        revision: 4,
+        state: 'ready' as const,
+      },
+      incomingStatus: 'active',
+      previousStatus: 'disconnected',
+      previousState: 'operator_required',
+      expectedStatus: 'disconnected',
+    },
+    {
+      health: undefined,
+      incomingStatus: 'inactive',
+      previousStatus: 'active',
+      previousState: 'ready',
+      expectedStatus: 'inactive',
+    },
+  ] as const)(
+    'retains newer health while honoring explicit lifecycle: $expectedStatus',
+    async ({
+      health,
+      incomingStatus,
+      previousStatus,
+      previousState,
+      expectedStatus,
+    }) => {
       const previous = {
         ...row(),
-        status: 'disconnected',
+        status: previousStatus,
         health: {
           version: 1 as const,
           credentialGeneration: 2,
           revision: 5,
-          state: 'operator_required' as const,
+          state: previousState,
         },
       };
       const directory = new PrismaBizzbloxChannelDirectory({
@@ -200,14 +226,96 @@ describe('BizzBLOX exact-tenant channel directory', () => {
           integrationId: previous.integrationId,
           connectorRevision: 7,
           contractDigest: previous.contractDigest,
-          status: 'active',
+          status: incomingStatus,
           health,
         },
       ]);
       expect(result[0]).toMatchObject({
-        status: 'disconnected',
+        status: expectedStatus,
         health: previous.health,
       });
+    }
+  );
+
+  it('retries a serialization conflict with a fresh read so newer health remains held', async () => {
+    const previous = {
+      ...row(),
+      health: {
+        version: 1 as const,
+        credentialGeneration: 2,
+        revision: 5,
+        state: 'operator_required' as const,
+      },
+      status: 'disconnected',
+    };
+    const findUnique = vi
+      .fn()
+      .mockResolvedValueOnce(row())
+      .mockResolvedValue(previous);
+    const upsert = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError('serialization conflict', {
+          code: 'P2034',
+          clientVersion: '6.5.0',
+        })
+      )
+      .mockImplementation(async ({ update }) => ({ ...previous, ...update }));
+    const directory = new PrismaBizzbloxChannelDirectory({
+      $transaction: async (fn) =>
+        fn({
+          bizzbloxChannel: {
+            findUnique,
+            upsert,
+            updateMany: async () => ({ count: 0 }),
+          },
+        }),
+      bizzbloxChannel: {
+        findUnique: async () => previous,
+        updateMany: async () => ({ count: 0 }),
+      },
+    });
+    await expect(
+      directory.synchronize(previous.organizationId, 7, [
+        {
+          channelHandle: previous.externalChannelHandle,
+          integrationId: previous.integrationId,
+          connectorRevision: 7,
+          contractDigest: previous.contractDigest,
+          status: 'active',
+        },
+      ])
+    ).resolves.toEqual([
+      expect.objectContaining({
+        status: 'disconnected',
+        health: previous.health,
+      }),
+    ]);
+    expect(findUnique).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['P2034', 5],
+    ['P2002', 1],
+  ] as const)(
+    'bounds retries and propagates %s',
+    async (code, expectedAttempts) => {
+      const error = new Prisma.PrismaClientKnownRequestError(
+        'database refusal',
+        { code, clientVersion: '6.5.0' }
+      );
+      const transaction = vi.fn().mockRejectedValue(error);
+      const directory = new PrismaBizzbloxChannelDirectory({
+        $transaction: transaction,
+        bizzbloxChannel: {
+          findUnique: async () => null,
+          updateMany: async () => ({ count: 0 }),
+        },
+      });
+      await expect(directory.synchronize('postiz-org-1', 7, [])).rejects.toBe(
+        error
+      );
+      expect(transaction).toHaveBeenCalledTimes(expectedAttempts);
     }
   );
 });

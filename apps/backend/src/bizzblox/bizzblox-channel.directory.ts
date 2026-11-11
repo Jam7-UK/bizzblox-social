@@ -3,6 +3,7 @@ import {
   type ChannelHealthV1,
 } from '@bizzblox/postiz-agent-client';
 import { Inject, Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 
 import type {
   BizzbloxChannelDirectory,
@@ -138,75 +139,88 @@ export class PrismaBizzbloxChannelDirectory
     connectorRevision: number,
     candidates: readonly BizzbloxManagedChannelCandidate[]
   ) {
-    return await this.database.$transaction(
-      async (transaction) => {
-        const rows: StoredChannel[] = [];
-        for (const candidate of candidates) {
-          const previous = await transaction.bizzbloxChannel.findUnique({
+    const synchronize = async (transaction: BizzbloxChannelTransaction) => {
+      const rows: StoredChannel[] = [];
+      for (const candidate of candidates) {
+        const previous = await transaction.bizzbloxChannel.findUnique({
+          where: {
+            organizationId_integrationId: {
+              organizationId,
+              integrationId: candidate.integrationId,
+            },
+          },
+        });
+        const previousHealth =
+          previous?.health == null
+            ? undefined
+            : decodeChannelHealth(previous.health);
+        const stale =
+          previousHealth &&
+          (!candidate.health ||
+            candidate.health.revision < previousHealth.revision);
+        const nextHealth = stale ? previousHealth : candidate.health;
+        const nextStatus =
+          candidate.status === 'inactive'
+            ? 'inactive'
+            : stale
+            ? status(previous!.status)
+            : candidate.status;
+        rows.push(
+          await transaction.bizzbloxChannel.upsert({
             where: {
               organizationId_integrationId: {
                 organizationId,
                 integrationId: candidate.integrationId,
               },
             },
-          });
-          const previousHealth =
-            previous?.health == null
-              ? undefined
-              : decodeChannelHealth(previous.health);
-          const stale =
-            previousHealth &&
-            (!candidate.health ||
-              candidate.health.revision < previousHealth.revision);
-          const nextHealth = stale ? previousHealth : candidate.health;
-          const nextStatus = stale
-            ? status(previous!.status)
-            : candidate.status;
-          rows.push(
-            await transaction.bizzbloxChannel.upsert({
-              where: {
-                organizationId_integrationId: {
-                  organizationId,
-                  integrationId: candidate.integrationId,
+            create: {
+              organizationId,
+              externalChannelHandle: candidate.channelHandle,
+              connectorRevision,
+              contractDigest: candidate.contractDigest,
+              integrationId: candidate.integrationId,
+              status: nextStatus,
+              ...(nextHealth ? { health: nextHealth } : {}),
+            },
+            update: {
+              connectorRevision,
+              contractDigest: candidate.contractDigest,
+              status: nextStatus,
+              ...(nextHealth ? { health: nextHealth } : {}),
+            },
+          })
+        );
+      }
+      await transaction.bizzbloxChannel.updateMany({
+        where: {
+          organizationId,
+          ...(candidates.length
+            ? {
+                integrationId: {
+                  notIn: candidates.map((candidate) => candidate.integrationId),
                 },
-              },
-              create: {
-                organizationId,
-                externalChannelHandle: candidate.channelHandle,
-                connectorRevision,
-                contractDigest: candidate.contractDigest,
-                integrationId: candidate.integrationId,
-                status: nextStatus,
-                ...(nextHealth ? { health: nextHealth } : {}),
-              },
-              update: {
-                connectorRevision,
-                contractDigest: candidate.contractDigest,
-                status: nextStatus,
-                ...(nextHealth ? { health: nextHealth } : {}),
-              },
-            })
-          );
-        }
-        await transaction.bizzbloxChannel.updateMany({
-          where: {
-            organizationId,
-            ...(candidates.length
-              ? {
-                  integrationId: {
-                    notIn: candidates.map(
-                      (candidate) => candidate.integrationId
-                    ),
-                  },
-                }
-              : {}),
-          },
-          data: { status: 'disconnected' },
+              }
+            : {}),
+        },
+        data: { status: 'disconnected' },
+      });
+      return Object.freeze(rows.map(record));
+    };
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.database.$transaction(synchronize, {
+          isolationLevel: 'Serializable',
         });
-        return Object.freeze(rows.map(record));
-      },
-      { isolationLevel: 'Serializable' }
-    );
+      } catch (error) {
+        if (
+          attempt < 4 &&
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2034'
+        )
+          continue;
+        throw error;
+      }
+    }
   }
 
   async read(organizationId: string, channelHandle: string) {

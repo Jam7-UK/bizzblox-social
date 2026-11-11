@@ -28,11 +28,11 @@ export class RefreshIntegrationService {
         integration.id
       );
       if (!current) return false;
-      if (current.credentialGeneration === integration.credentialGeneration) {
-        await this.run(current.organizationId, current.id, true);
-      } else if (integration.credentialGeneration === undefined) {
-        await this.run(current.organizationId, current.id);
-      }
+      await this.run(
+        current.organizationId,
+        current.id,
+        current.credentialGeneration === integration.credentialGeneration
+      );
       const stored = await this.repository.getIntegrationById(
         current.organizationId,
         current.id
@@ -40,6 +40,11 @@ export class RefreshIntegrationService {
       if (!stored || this.repository.health(stored).state !== 'ready')
         return false;
       const opened = await this.repository.openForProviderExecution(stored);
+      if (
+        opened.tokenExpiration &&
+        opened.tokenExpiration.getTime() <= Date.now()
+      )
+        return false;
       return {
         id: opened.internalId,
         name: opened.name,

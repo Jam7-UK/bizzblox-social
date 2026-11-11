@@ -443,7 +443,7 @@ export class IntegrationService {
       inBetweenSteps: false,
       token: getIntegrationInformation.access_token,
       profile: getIntegrationInformation.username,
-      credentialScope: provider.refreshConfigurationFingerprint?.() ?? null,
+      credentialScope: getIntegration.credentialScope,
     });
 
     return { success: true };

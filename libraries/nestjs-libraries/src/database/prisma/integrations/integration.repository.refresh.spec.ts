@@ -141,6 +141,69 @@ describe.skipIf(!url)('durable credential recovery in PostgreSQL', () => {
     ).resolves.toMatchObject({ token: credentials.accessToken });
   });
 
+  it('recovers current expired credentials for an older posting snapshot without forcing a fresh generation twice', async () => {
+    const f = await fixture();
+    await f.service.run(f.org, f.row.id);
+    await db.integration.update({
+      where: { id: f.row.id },
+      data: { tokenExpiration: new Date(0) },
+    });
+
+    await expect(f.service.refresh(f.row)).resolves.toMatchObject({
+      accessToken: credentials.accessToken,
+    });
+    expect(f.provider.refreshToken).toHaveBeenCalledTimes(2);
+    expect((await f.read()).credentialGeneration).toBe(2);
+    expect((await f.read()).tokenExpiration!.getTime()).toBeGreaterThan(
+      Date.now()
+    );
+
+    await f.service.refresh(f.row);
+    expect(f.provider.refreshToken).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([null, 'original-client'])(
+    'preserves issuance scope %s through page selection',
+    async (credentialScope) => {
+      const f = await fixture();
+      await db.integration.update({
+        where: { id: f.row.id },
+        data: { inBetweenSteps: true, credentialScope },
+      });
+      Object.assign(f.provider, {
+        refreshConfigurationFingerprint: () => 'current-client',
+        fetchPageInformation: async () => ({
+          id: 'account',
+          name: 'Selected account',
+          access_token: 'selected-access',
+        }),
+      });
+      const service = new IntegrationService(
+        repository,
+        {} as never,
+        f.manager as never,
+        {} as never,
+        f.service,
+        {} as never
+      );
+
+      await service.saveProviderPage(f.org, f.row.id, {});
+
+      const selected = await f.read();
+      expect(selected).toMatchObject({
+        inBetweenSteps: false,
+        credentialScope,
+      });
+      await expect(
+        repository.openForProviderExecution(selected)
+      ).resolves.toMatchObject({
+        token: 'selected-access',
+        refreshToken: 'old-refresh-secret',
+      });
+      expect(f.provider.refreshToken).not.toHaveBeenCalled();
+    }
+  );
+
   it.each([false, true])(
     'recovers an expired exchange lease only with persisted replay proof: %s',
     async (safe) => {

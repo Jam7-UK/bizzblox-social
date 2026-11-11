@@ -33,6 +33,9 @@ An explicitly disabled integration is always `inactive`; deleted integrations
 are omitted. The v1 wire has no reasons or timestamps. Older engines may omit
 health. The decoder rejects malformed advertised health, and the directory
 retains newer health when an older revision or legacy payload arrives.
+An explicit disabled status still takes precedence when health is absent.
+Directory serialization conflicts retry the whole transaction, including its
+health read, up to four times; unrelated database failures propagate.
 `revision` increases across credential replacements, reconnects and health
 changes; it never resets for a stable integration. Database counters use Prisma
 `Int` and fail closed at the database limit rather than wrapping.
@@ -63,6 +66,12 @@ opening the envelope. A stale active directory cannot authorize a held owner.
    account retirement and tenant cleanup invalidate claims/generations. Late
    successes and failures cannot overwrite newer credentials or reactivate rows.
 
+An older posting-workflow snapshot still sends due current credentials through
+the same recovery owner. It cannot force a fresh generation to refresh again,
+and an expired token is never returned as a successful refresh. The legacy
+activity name remains registered by the posting activity, preserving provider
+propagation delays and credential-free workflow results.
+
 After lease expiry, a prepared or pending-profile attempt may recover. An
 uncertain exchange is held unless its persisted provider policy proves replay
 safe. The Google adapters declare stable refresh-token replay; all other adapters
@@ -78,6 +87,8 @@ and scopes. Missing/unproven/mismatched configuration is operator-owned;
 `invalid_client`, `unauthorized_client` and `invalid_scope` are configuration
 failures. Generic 401s, message substrings and profile responses never establish
 revocation. Legacy credentials without a fingerprint cannot establish consent.
+Page selection preserves the credential's saved issuance fingerprint, including
+an unknown value; a profile read cannot attest to the current OAuth client.
 
 Provider evidence:
 
