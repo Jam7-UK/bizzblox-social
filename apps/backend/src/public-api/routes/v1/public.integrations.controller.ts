@@ -40,7 +40,7 @@ import { NotificationService } from '@gitroom/nestjs-libraries/database/prisma/n
 import { GetNotificationsDto } from '@gitroom/nestjs-libraries/dtos/notifications/get.notifications.dto';
 import { Readable } from 'stream';
 import { ssrfSafeDispatcher } from '@gitroom/nestjs-libraries/dtos/webhooks/ssrf.safe.dispatcher';
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { fileTypeFromBuffer } = require('file-type');
 
 const PUBLIC_API_ALLOWED_MIME = new Set<string>([
@@ -344,6 +344,7 @@ export class PublicIntegrationsController {
         identifier: integration.providerIdentifier,
         picture: integration.picture,
         disabled: integration.disabled,
+        health: this._integrationService.integrationHealth(integration),
         profile: integration.profile,
         customer: integration.customer
           ? {
@@ -642,12 +643,8 @@ export class PublicIntegrationsController {
           );
 
           if (!data) {
-            await this._integrationService.disconnectChannel(
-              org.id,
-              getIntegration
-            );
             throw new HttpException(
-              { msg: 'Channel disconnected due to expired token' },
+              { msg: 'Channel recovery is in progress or needs support.' },
               401
             );
           }

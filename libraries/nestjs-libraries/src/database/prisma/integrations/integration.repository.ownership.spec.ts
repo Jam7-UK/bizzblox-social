@@ -75,8 +75,16 @@ describe.skipIf(!url)('provider account ownership in PostgreSQL', () => {
       account
     );
     expect(migrated.id).toBe(rows[0].id);
+    await expect(repository.openForProviderExecution(migrated)).rejects.toThrow(
+      'unavailable'
+    );
+    const replaced = await connect(
+      rows[0].organizationId,
+      account,
+      'provider-b'
+    );
     await expect(
-      repository.openForProviderExecution(migrated)
+      repository.openForProviderExecution(replaced)
     ).resolves.toMatchObject({ id: rows[0].id });
   });
 

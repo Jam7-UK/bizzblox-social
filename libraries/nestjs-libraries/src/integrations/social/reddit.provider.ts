@@ -91,7 +91,7 @@ export class RedditProvider extends SocialAbstract implements SocialProvider {
 
   async refreshToken(refreshToken: string): Promise<AuthTokenDetails> {
     const { access_token: accessToken, expires_in: expiresIn } = await (
-      await this.fetch('https://www.reddit.com/api/v1/access_token', {
+      await fetch('https://www.reddit.com/api/v1/access_token', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
@@ -106,22 +106,13 @@ export class RedditProvider extends SocialAbstract implements SocialProvider {
       })
     ).json();
 
-    const { name, id, icon_img } = await (
-      await this.fetch('https://oauth.reddit.com/api/v1/me', {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      })
-    ).json();
-
     return {
-      id,
-      name,
       accessToken,
-      refreshToken: refreshToken,
+      refreshToken,
       expiresIn,
-      picture: icon_img?.split?.('?')?.[0] || '',
-      username: name,
+      id: '',
+      name: '',
+      username: '',
     };
   }
 

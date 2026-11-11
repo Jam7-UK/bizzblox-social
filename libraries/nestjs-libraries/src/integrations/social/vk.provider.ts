@@ -45,33 +45,19 @@ export class VkProvider extends SocialAbstract implements SocialProvider {
     formData.append('scope', this.scopes.join(' '));
 
     const { access_token, refresh_token, expires_in } = await (
-      await this.fetch('https://id.vk.com/oauth2/auth', {
+      await fetch('https://id.vk.com/oauth2/auth', {
         method: 'POST',
         body: formData,
       })
     ).json();
 
-    const newFormData = new FormData();
-    newFormData.append('client_id', process.env.VK_ID!);
-    newFormData.append('access_token', access_token);
-
-    const {
-      user: { user_id, first_name, last_name, avatar },
-    } = await (
-      await this.fetch('https://id.vk.com/oauth2/user_info', {
-        method: 'POST',
-        body: newFormData,
-      })
-    ).json();
-
     return {
-      id: user_id,
-      name: first_name + ' ' + last_name,
       accessToken: access_token,
       refreshToken: refresh_token + '&&&&' + device_id,
-      expiresIn: dayjs().add(expires_in, 'seconds').unix() - dayjs().unix(),
-      picture: avatar || '',
-      username: first_name.toLowerCase(),
+      expiresIn: expires_in,
+      id: '',
+      name: '',
+      username: '',
     };
   }
 

@@ -1,4 +1,4 @@
-export { createPostizAgentClient } from './client';
+export { createPostizAgentClient, decodeChannelHealth } from './client';
 export { PostizAgentError } from './error';
 export type { PostizAgentErrorCode } from './error';
 export type {
@@ -10,6 +10,7 @@ export type {
   DeleteOutcome,
   DeletePostInput,
   IntegrationSummary,
+  ChannelHealthV1,
   JsonPrimitive,
   JsonValue,
   ListPostsInput,

@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { createPostizAgentClient } from '@bizzblox/postiz-agent-client';
+import { PublicIntegrationsController } from '../public-api/routes/v1/public.integrations.controller';
+import { PrismaBizzbloxChannelDirectory } from './bizzblox-channel.directory';
+import { IntegrationRepository } from '@gitroom/nestjs-libraries/database/prisma/integrations/integration.repository';
+import { IntegrationService } from '@gitroom/nestjs-libraries/database/prisma/integrations/integration.service';
 import type {
   PostizAgentClient,
   ProviderContract,
@@ -230,5 +235,171 @@ describe('BizzBLOX live social contracts', () => {
         {}
       )
     ).rejects.toThrow(/helper/i);
+  });
+  it('transports owner health through the public summary, real client decoder, directory and managed channel list', async () => {
+    const unused = {} as never;
+    const repository = new IntegrationRepository(
+      unused,
+      unused,
+      unused,
+      unused,
+      unused,
+      unused,
+      unused,
+      unused
+    );
+    const rows = [
+      'ready',
+      'recovering',
+      'operator_required',
+      'consent_required',
+      'ready',
+    ].map((healthState, index) => ({
+      id: `channel-${index}`,
+      name: `Channel ${index}`,
+      providerIdentifier: 'test-provider',
+      picture: null,
+      disabled: index === 4,
+      healthState,
+      credentialGeneration: index,
+      healthRevision: 100 + index,
+      refreshNeeded: index === 2,
+      token: 'private-token',
+      refreshPendingAccess: 'private-pending',
+      customer: null,
+    }));
+    vi.spyOn(repository, 'getIntegrationsList').mockResolvedValue(
+      rows as never
+    );
+    const integrations = new IntegrationService(
+      repository,
+      unused,
+      unused,
+      unused,
+      unused,
+      unused
+    );
+    const controller = new PublicIntegrationsController(
+      integrations,
+      unused,
+      unused,
+      unused,
+      unused,
+      unused,
+      unused,
+      unused
+    );
+    const request = vi.fn(async ({ path }) => ({
+      status: 200,
+      body:
+        path === '/public/v1/integrations'
+          ? await controller.listIntegration({ id: 'org' } as never)
+          : { output: linkedinContract },
+    }));
+    const client = createPostizAgentClient({
+      transport: { request },
+      credential: async () => ({
+        apiKey: 'local',
+        apiUrl: 'https://local.test',
+      }),
+      clock: () => new Date(),
+    });
+    const persisted = new Map<string, unknown>();
+    const directory = new PrismaBizzbloxChannelDirectory({
+      $transaction: async (fn) =>
+        fn({
+          bizzbloxChannel: {
+            findUnique: async () => null,
+            upsert: async ({ create, update }) => {
+              const row = { ...create, ...update };
+              persisted.set(row.integrationId, row);
+              return row;
+            },
+            updateMany: async () => ({ count: 0 }),
+          },
+        }),
+      bizzbloxChannel: {
+        findUnique: async () => null,
+        updateMany: async () => ({ count: 0 }),
+      },
+    });
+    const refs = {
+      channel: (_org, id) => `opaque-${id}`,
+      helper: () => 'helper',
+    };
+    const service = new BizzbloxContractService(
+      { forOrganization: async () => client },
+      directory,
+      refs
+    );
+    const result = await service.listChannels('org', 7);
+    expect(result.channels.map((row) => [row.status, row.health])).toEqual([
+      [
+        'active',
+        { version: 1, credentialGeneration: 0, revision: 100, state: 'ready' },
+      ],
+      [
+        'disconnected',
+        {
+          version: 1,
+          credentialGeneration: 1,
+          revision: 101,
+          state: 'recovering',
+        },
+      ],
+      [
+        'disconnected',
+        {
+          version: 1,
+          credentialGeneration: 2,
+          revision: 102,
+          state: 'operator_required',
+        },
+      ],
+      [
+        'disconnected',
+        {
+          version: 1,
+          credentialGeneration: 3,
+          revision: 103,
+          state: 'consent_required',
+        },
+      ],
+      [
+        'inactive',
+        { version: 1, credentialGeneration: 4, revision: 104, state: 'ready' },
+      ],
+    ]);
+    expect(persisted.size).toBe(5);
+    expect(JSON.stringify(result)).not.toContain('private-');
+  });
+
+  it('rechecks the live owner before a helper despite a stale active directory', async () => {
+    const { service, client } = setup();
+    vi.mocked(client.listIntegrations).mockResolvedValue([
+      {
+        id: 'integration-linkedin-1',
+        identifier: 'linkedin',
+        name: 'Channel',
+        picture: null,
+        disabled: false,
+        health: {
+          version: 1,
+          credentialGeneration: 1,
+          revision: 2,
+          state: 'operator_required',
+        },
+      },
+    ]);
+    await expect(
+      service.executeHelper(
+        'postiz-org-1',
+        7,
+        'bbx_ch_exact_linkedin',
+        'bbx_help_choose_organization',
+        {}
+      )
+    ).rejects.toThrow('temporarily unavailable');
+    expect(client.triggerIntegrationTool).not.toHaveBeenCalled();
   });
 });

@@ -393,10 +393,6 @@ export class NoAuthIntegrationsController {
     }
 
     if (String(authResult.id) !== String(integration.internalId)) {
-      await this._integrationService.refreshNeeded(
-        organizationId,
-        integrationId
-      );
       return { success: false, reason: 'account_mismatch' };
     }
 

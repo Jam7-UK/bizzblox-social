@@ -14,6 +14,9 @@ describe('Temporal provider credential boundary', () => {
       providerIdentifier: 'linkedin',
       refreshToken: 'sealed-refresh-envelope',
       token: 'sealed-access-envelope',
+      refreshPendingAccess: 'pending-access-envelope',
+      refreshPendingToken: 'pending-refresh-envelope',
+      credentialScope: 'internal-credential-fingerprint',
     };
 
     const safeIntegration = integrationForTemporalHistory(integration);
@@ -46,5 +49,8 @@ describe('Temporal provider credential boundary', () => {
     expect(serialized).not.toContain('sealed-refresh-envelope');
     expect(serialized).not.toContain('new-access-secret');
     expect(serialized).not.toContain('new-refresh-secret');
+    expect(serialized).not.toContain('pending-access-envelope');
+    expect(serialized).not.toContain('pending-refresh-envelope');
+    expect(serialized).not.toContain('internal-credential-fingerprint');
   });
 });

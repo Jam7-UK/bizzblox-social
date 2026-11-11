@@ -53,6 +53,14 @@ export type BizzbloxTenantTransaction = Readonly<{
         disabled: true;
         refreshToken: null;
         token: 'retired';
+        credentialGeneration: { increment: number };
+        healthRevision: { increment: number };
+        healthState: 'operator_required';
+        refreshClaim: null;
+        refreshLeaseUntil: null;
+        refreshPendingAccess: null;
+        refreshPendingToken: null;
+        refreshPendingExpiry: null;
       };
     }): Promise<{ count: number }>;
   }>;
@@ -191,6 +199,14 @@ export class PrismaBizzbloxTenantStore implements BizzbloxTenantStore {
           disabled: true,
           refreshToken: null,
           token: 'retired',
+          credentialGeneration: { increment: 1 },
+          healthRevision: { increment: 1 },
+          healthState: 'operator_required',
+          refreshClaim: null,
+          refreshLeaseUntil: null,
+          refreshPendingAccess: null,
+          refreshPendingToken: null,
+          refreshPendingExpiry: null,
         },
       });
       await transaction.bizzbloxPublication.deleteMany({

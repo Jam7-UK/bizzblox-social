@@ -163,3 +163,11 @@ service. `SOCIAL_OWNERSHIP_TEST_DATABASE_URL` is a test-only override; never poi
 it at a hosted or customer database. Real database tests exercise concurrent
 ownership, reconnect, namespaces, existing duplicates, account selection and
 migration, in addition to the normal token-sealing tests.
+
+## Durable provider credential refresh
+
+Credential refresh is owned by `RefreshIntegrationService` and
+`IntegrationRepository` in both command and Temporal execution. See
+[the recovery protocol](./credential-recovery.md) for the wire contract, migration,
+operator inventory, safe repair and rollback constraints. Never clear recovery
+fields manually to retry an uncertain token exchange.

@@ -95,6 +95,7 @@ model BizzbloxChannel {
   contractDigest        String
   integrationId         String
   status                String       @default("active")
+  health                Json?
   createdAt             DateTime     @default(now())
   updatedAt             DateTime     @updatedAt
   organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
@@ -441,6 +442,20 @@ model Integration {
   updatedAt             DateTime?              @updatedAt
   inBetweenSteps        Boolean                @default(false)
   refreshNeeded         Boolean                @default(false)
+  credentialGeneration  Int                    @default(0)
+  credentialScope       String?
+  healthRevision        Int                    @default(0)
+  healthState           String                 @default("ready")
+  refreshReason         String?
+  refreshClaim          String?
+  refreshLeaseUntil     DateTime?
+  refreshPhase          String?
+  refreshReplaySafe     Boolean                @default(false)
+  refreshNextAt         DateTime?
+  refreshAttempts       Int                    @default(0)
+  refreshPendingAccess  String?
+  refreshPendingToken   String?
+  refreshPendingExpiry  DateTime?
   postingTimes          String                 @default("[{\"time\":120}, {\"time\":400}, {\"time\":700}]")
   customInstanceDetails String?
   customerId            String?
@@ -464,6 +479,7 @@ model Integration {
   @@index([customerId])
   @@index([inBetweenSteps])
   @@index([refreshNeeded])
+  @@index([healthState, refreshNextAt, id])
   @@index([disabled])
 }
 

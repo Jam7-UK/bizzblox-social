@@ -138,7 +138,12 @@ export class IntegrationService {
       isBetweenSteps,
       refresh,
       timezone,
-      customInstanceDetails
+      customInstanceDetails,
+      type === 'social'
+        ? this._integrationManager
+            .getSocialIntegration(provider)
+            .refreshConfigurationFingerprint?.() ?? null
+        : null
     );
   }
 
@@ -189,23 +194,12 @@ export class IntegrationService {
       : null;
   }
 
-  async refreshToken(provider: SocialProvider, refresh: string) {
-    try {
-      const { refreshToken, accessToken, expiresIn } =
-        await provider.refreshToken(refresh);
-
-      if (!refreshToken || !accessToken || !expiresIn) {
-        return false;
-      }
-
-      return { refreshToken, accessToken, expiresIn };
-    } catch (e) {
-      return false;
-    }
-  }
-
   async disconnectChannel(orgId: string, integration: Integration, err = '') {
-    await this._integrationRepository.disconnectChannel(orgId, integration.id);
+    await this._integrationRepository.disconnectChannel(
+      orgId,
+      integration.id,
+      integration.credentialGeneration
+    );
     await this.informAboutRefreshError(orgId, integration, err);
   }
 
@@ -332,63 +326,42 @@ export class IntegrationService {
   ) {
     await this._notificationService.inAppNotification(
       orgId,
-      `Could not refresh your ${integration.providerIdentifier} channel ${err}`,
-      `Could not refresh your ${integration.providerIdentifier} channel ${err}. Please go back to the system and connect it again ${process.env.FRONTEND_URL}/launches`,
+      `Channel recovery needs attention`,
+      `Your channel is temporarily unavailable. Support can check its recovery status.`,
       true,
       false,
       'info'
     );
   }
 
-  async refreshNeeded(org: string, id: string) {
-    return this._integrationRepository.refreshNeeded(org, id);
-  }
-
-  async setBetweenRefreshSteps(id: string) {
-    return this._integrationRepository.setBetweenRefreshSteps(id);
-  }
-
-  async refreshTokens() {
-    const integrations = await this._integrationRepository.needsToBeRefreshed();
-    for (const storedIntegration of integrations) {
-      const integration =
-        await this._integrationRepository.openForProviderExecution(
-          storedIntegration
-        );
-      const provider = this._integrationManager.getSocialIntegration(
-        integration.providerIdentifier
-      );
-
-      const data = await this.refreshToken(provider, integration.refreshToken!);
-
-      if (!data) {
-        await this.informAboutRefreshError(
-          integration.organizationId,
-          integration
-        );
-        await this._integrationRepository.refreshNeeded(
+  async refreshTokens(after?: string) {
+    const integrations = await this._integrationRepository.refreshCandidates(
+      after
+    );
+    for (const integration of integrations) {
+      try {
+        await this._refreshIntegrationService.run(
           integration.organizationId,
           integration.id
         );
-        return;
+      } catch {
+        // Continue the scan; the durable claim records whether an exchange may have happened.
       }
-
-      const { refreshToken, accessToken, expiresIn } = data;
-
-      await this.createOrUpdateIntegration(
-        undefined,
-        !!provider.oneTimeToken,
-        integration.organizationId,
-        integration.name,
-        undefined,
-        'social',
-        integration.internalId,
-        integration.providerIdentifier,
-        accessToken,
-        refreshToken,
-        expiresIn
-      );
     }
+    return {
+      after:
+        integrations.length === 100
+          ? integrations[integrations.length - 1].id
+          : undefined,
+    };
+  }
+
+  integrationHealth(integration: Integration) {
+    return this._integrationRepository.health(integration);
+  }
+
+  listRefreshHolds(after?: string) {
+    return this._integrationRepository.refreshCandidates(after, true);
   }
 
   async disableChannel(org: string, id: string) {
@@ -463,12 +436,14 @@ export class IntegrationService {
 
     await this._integrationRepository.updateIntegration(id, {
       picture: getIntegrationInformation.picture,
+      credentialGeneration: getIntegration.credentialGeneration,
       internalId: String(getIntegrationInformation.id),
       organizationId: org,
       name: getIntegrationInformation.name,
       inBetweenSteps: false,
       token: getIntegrationInformation.access_token,
       profile: getIntegrationInformation.username,
+      credentialScope: getIntegration.credentialScope,
     });
 
     return { success: true };

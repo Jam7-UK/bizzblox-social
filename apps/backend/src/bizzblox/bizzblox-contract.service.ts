@@ -4,6 +4,7 @@ import { Inject, Injectable } from '@nestjs/common';
 
 import type {
   IntegrationSummary,
+  ChannelHealthV1,
   JsonValue,
   PostizAgentClient,
   ProviderContract,
@@ -30,6 +31,7 @@ export type BizzbloxManagedChannelCandidate = Readonly<{
   contractDigest: string;
   integrationId: string;
   status: BizzbloxManagedChannelStatus;
+  health?: ChannelHealthV1;
 }>;
 
 export type BizzbloxManagedChannelRecord = BizzbloxManagedChannelCandidate &
@@ -316,8 +318,11 @@ export class BizzbloxContractService {
         connectorRevision,
         contractDigest: bizzbloxDigest(contracts[index]),
         integrationId: integration.id,
+        ...(integration.health ? { health: integration.health } : {}),
         status: integration.disabled
           ? ('inactive' as const)
+          : integration.health && integration.health.state !== 'ready'
+          ? ('disconnected' as const)
           : ('active' as const),
       })
     );
@@ -367,6 +372,7 @@ export class BizzbloxContractService {
         contract
       ),
       status: channel.status,
+      ...(channel.health ? { health: channel.health } : {}),
     });
   }
 
@@ -439,6 +445,18 @@ export class BizzbloxContractService {
     if (!tool) {
       throw new BizzbloxContractInputError(
         'Provider helper reference is stale or invalid.'
+      );
+    }
+    const owner = (await loaded.client.listIntegrations()).find(
+      (item) => item.id === loaded.channel.integrationId
+    );
+    if (
+      !owner ||
+      owner.disabled ||
+      (owner.health && owner.health.state !== 'ready')
+    ) {
+      throw new BizzbloxContractInputError(
+        'Social channel is temporarily unavailable.'
       );
     }
     const output = await loaded.client.triggerIntegrationTool({

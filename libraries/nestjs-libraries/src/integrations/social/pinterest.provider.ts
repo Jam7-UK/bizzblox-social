@@ -172,23 +172,13 @@ export class PinterestProvider
       })
     ).json();
 
-    const { id, profile_image, username } = await (
-      await fetch('https://api.pinterest.com/v5/user_account', {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${access_token}`,
-        },
-      })
-    ).json();
-
     return {
-      id: id,
-      name: username,
       accessToken: access_token,
-      refreshToken: refreshToken,
+      refreshToken,
       expiresIn: expires_in,
-      picture: profile_image || '',
-      username,
+      id: '',
+      name: '',
+      username: '',
     };
   }
 

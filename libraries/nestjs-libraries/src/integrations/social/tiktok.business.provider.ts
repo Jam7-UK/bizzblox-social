@@ -330,19 +330,13 @@ export class TiktokBusinessProvider
 
     const { access_token, refresh_token, open_id } = response.data;
 
-    const { display_name, profile_image, username } =
-      await this.fetchUserInformation(access_token, open_id);
-
     return {
-      refreshToken: refresh_token,
-      expiresIn: dayjs().add(23, 'hours').unix() - dayjs().unix(),
       accessToken: access_token,
-      // open_id is stored verbatim: it doubles as the business_id parameter of
-      // every Business API call, so it must not be normalized.
-      id: open_id,
-      name: display_name,
-      picture: profile_image || '',
-      username: username,
+      refreshToken: refresh_token,
+      expiresIn: 23 * 3600,
+      id: '',
+      name: '',
+      username: '',
     };
   }
 

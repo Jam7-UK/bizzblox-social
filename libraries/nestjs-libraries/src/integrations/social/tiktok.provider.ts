@@ -294,30 +294,13 @@ export class TiktokProvider extends SocialAbstract implements SocialProvider {
       })
     ).json();
 
-    const {
-      data: {
-        user: { avatar_url, display_name, open_id, username },
-      },
-    } = await (
-      await fetch(
-        'https://open.tiktokapis.com/v2/user/info/?fields=open_id,avatar_url,display_name,union_id,username',
-        {
-          method: 'GET',
-          headers: {
-            Authorization: `Bearer ${access_token}`,
-          },
-        }
-      )
-    ).json();
-
     return {
-      refreshToken: refresh_token,
-      expiresIn: dayjs().add(23, 'hours').unix() - dayjs().unix(),
       accessToken: access_token,
-      id: open_id.replace(/-/g, ''),
-      name: display_name,
-      picture: avatar_url || '',
-      username: username,
+      refreshToken: refresh_token,
+      expiresIn: all.expires_in || 23 * 3600,
+      id: '',
+      name: '',
+      username: '',
     };
   }
 

@@ -540,4 +540,59 @@ describe('Postiz BizzBLOX connection provider gateway', () => {
     });
     expect(JSON.stringify(result)).not.toContain('-1001234567890');
   });
+  it('retains newly authorized refresh credentials when reconnect resolves an existing page', async () => {
+    const provider = {
+      identifier: 'page-provider',
+      isBetweenSteps: true,
+      oneTimeToken: true,
+      authenticate: vi.fn().mockResolvedValue({
+        id: 'login',
+        name: 'Login',
+        username: 'login',
+        accessToken: 'fresh-root',
+        refreshToken: 'fresh-refresh',
+        expiresIn: 3600,
+      }),
+      reConnect: vi.fn().mockResolvedValue({
+        id: 'selected-page',
+        name: 'Page',
+        username: 'page',
+        accessToken: 'fresh-page',
+      }),
+      pages: vi.fn().mockResolvedValue([{ id: 'selected-page', name: 'Page' }]),
+    };
+    const integrations = {
+      getIntegrationById: vi
+        .fn()
+        .mockResolvedValue({ id: 'integration', internalId: 'selected-page' }),
+      createOrUpdateIntegration: vi
+        .fn()
+        .mockResolvedValue({ id: 'integration' }),
+    };
+    const gateway = new PostizBizzbloxConnectionProviderGateway(
+      {
+        getAllowedSocialsIntegrations: () => ['page-provider'],
+        getSocialIntegration: () => provider,
+        isHiddenProvider: () => false,
+      } as never,
+      integrations as never,
+      { startRefreshWorkflow: async () => undefined } as never
+    );
+    const result = await gateway.completeAuthorization({
+      organizationId: 'org',
+      connectorRevision: 1,
+      provider: 'page-provider',
+      code: 'fresh-consent',
+      codeVerifier: 'verifier',
+      callbackUrl: 'https://local.test/callback',
+      reconnectIntegrationId: 'integration',
+    });
+    const args = integrations.createOrUpdateIntegration.mock.calls[0];
+    expect(args[8]).toBe('fresh-page');
+    expect(args[9]).toBe('fresh-refresh');
+    expect(args[10]).toBe(3600);
+    expect(args[12]).toBe(false);
+    expect(provider.pages).not.toHaveBeenCalled();
+    expect(result).toEqual({ integrationId: 'integration', selections: [] });
+  });
 });

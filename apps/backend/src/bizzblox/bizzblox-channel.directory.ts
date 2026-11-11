@@ -1,4 +1,9 @@
+import {
+  decodeChannelHealth,
+  type ChannelHealthV1,
+} from '@bizzblox/postiz-agent-client';
 import { Inject, Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 
 import type {
   BizzbloxChannelDirectory,
@@ -16,6 +21,7 @@ type StoredChannel = Readonly<{
   contractDigest: string;
   integrationId: string;
   status: string;
+  health?: unknown;
 }>;
 
 type ChannelIdentity = Readonly<{
@@ -27,6 +33,14 @@ type ChannelIdentity = Readonly<{
 
 interface BizzbloxChannelTransaction {
   bizzbloxChannel: Readonly<{
+    findUnique(input: {
+      where: {
+        organizationId_integrationId: {
+          organizationId: string;
+          integrationId: string;
+        };
+      };
+    }): Promise<StoredChannel | null>;
     upsert(input: {
       where: Readonly<{
         organizationId_integrationId: Readonly<{
@@ -41,11 +55,13 @@ interface BizzbloxChannelTransaction {
         contractDigest: string;
         integrationId: string;
         status: BizzbloxManagedChannelStatus;
+        health?: ChannelHealthV1;
       }>;
       update: Readonly<{
         connectorRevision: number;
         contractDigest: string;
         status: BizzbloxManagedChannelStatus;
+        health?: ChannelHealthV1;
       }>;
     }): Promise<StoredChannel>;
     updateMany(input: {
@@ -60,7 +76,8 @@ interface BizzbloxChannelTransaction {
 
 export interface BizzbloxChannelDatabase {
   $transaction<T>(
-    operation: (transaction: BizzbloxChannelTransaction) => Promise<T>
+    operation: (transaction: BizzbloxChannelTransaction) => Promise<T>,
+    options?: { isolationLevel: 'Serializable' }
   ): Promise<T>;
   bizzbloxChannel: Readonly<{
     findUnique(input: {
@@ -92,6 +109,7 @@ function record(row: StoredChannel): BizzbloxManagedChannelRecord {
     contractDigest: row.contractDigest,
     integrationId: row.integrationId,
     status: status(row.status),
+    ...(row.health == null ? {} : { health: decodeChannelHealth(row.health) }),
   });
 }
 
@@ -121,9 +139,32 @@ export class PrismaBizzbloxChannelDirectory
     connectorRevision: number,
     candidates: readonly BizzbloxManagedChannelCandidate[]
   ) {
-    return await this.database.$transaction(async (transaction) => {
+    const synchronize = async (transaction: BizzbloxChannelTransaction) => {
       const rows: StoredChannel[] = [];
       for (const candidate of candidates) {
+        const previous = await transaction.bizzbloxChannel.findUnique({
+          where: {
+            organizationId_integrationId: {
+              organizationId,
+              integrationId: candidate.integrationId,
+            },
+          },
+        });
+        const previousHealth =
+          previous?.health == null
+            ? undefined
+            : decodeChannelHealth(previous.health);
+        const stale =
+          previousHealth &&
+          (!candidate.health ||
+            candidate.health.revision < previousHealth.revision);
+        const nextHealth = stale ? previousHealth : candidate.health;
+        const nextStatus =
+          candidate.status === 'inactive' && !candidate.health
+            ? 'inactive'
+            : stale
+            ? status(previous!.status)
+            : candidate.status;
         rows.push(
           await transaction.bizzbloxChannel.upsert({
             where: {
@@ -138,12 +179,14 @@ export class PrismaBizzbloxChannelDirectory
               connectorRevision,
               contractDigest: candidate.contractDigest,
               integrationId: candidate.integrationId,
-              status: candidate.status,
+              status: nextStatus,
+              ...(nextHealth ? { health: nextHealth } : {}),
             },
             update: {
               connectorRevision,
               contractDigest: candidate.contractDigest,
-              status: candidate.status,
+              status: nextStatus,
+              ...(nextHealth ? { health: nextHealth } : {}),
             },
           })
         );
@@ -162,7 +205,22 @@ export class PrismaBizzbloxChannelDirectory
         data: { status: 'disconnected' },
       });
       return Object.freeze(rows.map(record));
-    });
+    };
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.database.$transaction(synchronize, {
+          isolationLevel: 'Serializable',
+        });
+      } catch (error) {
+        if (
+          attempt < 4 &&
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2034'
+        )
+          continue;
+        throw error;
+      }
+    }
   }
 
   async read(organizationId: string, channelHandle: string) {

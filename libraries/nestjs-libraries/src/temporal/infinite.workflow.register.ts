@@ -10,6 +10,18 @@ export class InfiniteWorkflowRegister implements OnModuleInit {
       try {
         await this._temporalService.client
           ?.getRawClient()
+          ?.workflow?.start('refreshTokensSweepWorkflowV2', {
+            workflowId: 'refresh-tokens-sweep-v2',
+            taskQueue: 'main',
+            workflowIdConflictPolicy: 'USE_EXISTING',
+          });
+      } catch {
+        /* Another worker may already own registration. */
+      }
+
+      try {
+        await this._temporalService.client
+          ?.getRawClient()
           ?.workflow?.start('missingPostWorkflow', {
             workflowId: 'missing-post-workflow',
             taskQueue: 'main',
