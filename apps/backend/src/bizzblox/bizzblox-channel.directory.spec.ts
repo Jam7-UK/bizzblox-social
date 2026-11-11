@@ -181,6 +181,18 @@ describe('BizzBLOX exact-tenant channel directory', () => {
       expectedStatus: 'disconnected',
     },
     {
+      health: {
+        version: 1 as const,
+        credentialGeneration: 1,
+        revision: 4,
+        state: 'ready' as const,
+      },
+      incomingStatus: 'inactive',
+      previousStatus: 'active',
+      previousState: 'ready',
+      expectedStatus: 'active',
+    },
+    {
       health: undefined,
       incomingStatus: 'inactive',
       previousStatus: 'active',

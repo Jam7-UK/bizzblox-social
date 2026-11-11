@@ -160,7 +160,7 @@ export class PrismaBizzbloxChannelDirectory
             candidate.health.revision < previousHealth.revision);
         const nextHealth = stale ? previousHealth : candidate.health;
         const nextStatus =
-          candidate.status === 'inactive'
+          candidate.status === 'inactive' && !candidate.health
             ? 'inactive'
             : stale
             ? status(previous!.status)
