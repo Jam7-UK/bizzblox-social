@@ -66,6 +66,22 @@ const YoutubeSettings: FC = () => {
           </option>
         ))}
       </Select>
+      <Select
+        label="Realistic altered or synthetic content"
+        aria-label="Realistic altered or synthetic content"
+        name="containsSyntheticMedia"
+        extraForm={{
+          setValueAs: (value) => {
+            if (value === 'true' || value === 'false') return value === 'true';
+            if (typeof value === 'boolean') return value;
+            return undefined;
+          },
+        }}
+      >
+        <option value="">Unspecified</option>
+        <option value="true">Yes</option>
+        <option value="false">No</option>
+      </Select>
       <MediumTags label="Tags" {...register('tags')} />
       <div className="mt-[20px]">
         <MediaComponent
