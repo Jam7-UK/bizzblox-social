@@ -600,6 +600,9 @@ export class YoutubeProvider extends SocialAbstract implements SocialProvider {
           status: {
             privacyStatus: settings.type,
             selfDeclaredMadeForKids: settings.selfDeclaredMadeForKids === 'yes',
+            ...(typeof settings.containsSyntheticMedia === 'boolean'
+              ? { containsSyntheticMedia: settings.containsSyntheticMedia }
+              : {}),
           },
         }),
       }
